@@ -71,36 +71,10 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	}
 	circ.flowCond = sync.NewCond(&circ.flowMu)
 
-	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
-	if err != nil {
+	if err := circ.createFirstHop(guard, len(relays) == 1); err != nil {
 		ch.Close()
 		return nil, err
 	}
-	if err := ch.WriteCell(cell.Create2(circID, crypto.HTypeNtor, hs)); err != nil {
-		ch.Close()
-		return nil, err
-	}
-	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hdata, err := cell.ParseCreated2(created.Body)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	keys, err := st.Finish(hdata)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hop, err := crypto.NewHop(keys)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	circ.hops = append(circ.hops, hop)
 	go circ.dispatch()
 
 	for i := 1; i < len(relays); i++ {
@@ -110,6 +84,61 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 		}
 	}
 	return circ, nil
+}
+
+func (circ *Circuit) createFirstHop(guard *directory.Relay, fast bool) error {
+	if fast {
+		x, err := crypto.CreateFastHandshake(rand.Reader)
+		if err != nil {
+			return err
+		}
+		if err := circ.ch.WriteCell(cell.CreateFast(circ.id, x)); err != nil {
+			return err
+		}
+		created, err := circ.waitLink(cell.CmdCreatedFast, 10*time.Second)
+		if err != nil {
+			return err
+		}
+		y, kh, err := cell.ParseCreatedFast(created.Body)
+		if err != nil {
+			return err
+		}
+		keys, err := crypto.CreateFastFinish(x, y, kh)
+		if err != nil {
+			return err
+		}
+		hop, err := crypto.NewHop(keys)
+		if err != nil {
+			return err
+		}
+		circ.hops = append(circ.hops, hop)
+		return nil
+	}
+	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
+	if err != nil {
+		return err
+	}
+	if err := circ.ch.WriteCell(cell.Create2(circ.id, crypto.HTypeNtor, hs)); err != nil {
+		return err
+	}
+	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	hdata, err := cell.ParseCreated2(created.Body)
+	if err != nil {
+		return err
+	}
+	keys, err := st.Finish(hdata)
+	if err != nil {
+		return err
+	}
+	hop, err := crypto.NewHop(keys)
+	if err != nil {
+		return err
+	}
+	circ.hops = append(circ.hops, hop)
+	return nil
 }
 
 func (circ *Circuit) waitLink(cmd byte, d time.Duration) (*cell.Cell, error) {

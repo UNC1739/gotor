@@ -185,3 +185,28 @@ func ParseCreated2(body []byte) ([]byte, error) {
 func Destroy(circID uint32, reason byte) *Cell {
 	return &Cell{CircID: circID, Command: CmdDestroy, Body: []byte{reason}}
 }
+
+func CreateFast(circID uint32, x []byte) *Cell {
+	return &Cell{CircID: circID, Command: CmdCreateFast, Body: append([]byte(nil), x...)}
+}
+
+func ParseCreateFast(body []byte) ([]byte, error) {
+	if len(body) < 20 {
+		return nil, fmt.Errorf("short CREATE_FAST")
+	}
+	return append([]byte(nil), body[:20]...), nil
+}
+
+func CreatedFast(circID uint32, y, kh []byte) *Cell {
+	body := make([]byte, 40)
+	copy(body[0:20], y)
+	copy(body[20:40], kh)
+	return &Cell{CircID: circID, Command: CmdCreatedFast, Body: body}
+}
+
+func ParseCreatedFast(body []byte) (y, kh []byte, err error) {
+	if len(body) < 40 {
+		return nil, nil, fmt.Errorf("short CREATED_FAST")
+	}
+	return append([]byte(nil), body[:20]...), append([]byte(nil), body[20:40]...), nil
+}
