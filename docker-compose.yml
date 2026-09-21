@@ -1,0 +1,75 @@
+services:
+  origin:
+    build: .
+    command: ["origin"]
+    environment:
+      ORIGIN_ADDR: ":8080"
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  tornet:
+    build: .
+    command: ["gotor-net"]
+    environment:
+      GOTOR_LISTEN: "0.0.0.0"
+      GOTOR_ADVERTISE: "172.28.0.20"
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.20
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:7000/tor/status-vote/current/consensus"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  client:
+    build: .
+    command: ["gotor"]
+    environment:
+      GOTOR_DIR: "172.28.0.20:7000"
+      GOTOR_SOCKS: "0.0.0.0:9050"
+    depends_on:
+      tornet:
+        condition: service_healthy
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.30
+    ports:
+      - "9050:9050"
+
+  test-int:
+    build: .
+    command: ["gotor-check"]
+    environment:
+      GOTOR_SOCKS: "172.28.0.30:9050"
+      GOTOR_CHECK_URL: "http://172.28.0.10:8080/"
+    depends_on:
+      origin:
+        condition: service_healthy
+      tornet:
+        condition: service_healthy
+      client:
+        condition: service_started
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.40
+
+  test-unit:
+    profiles: ["unit"]
+    build:
+      context: .
+      target: build
+    working_dir: /src
+    command: ["go", "test", "-count=1", "-timeout", "120s", "./..."]
+
+networks:
+  tornet:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
