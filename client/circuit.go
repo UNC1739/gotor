@@ -300,6 +300,56 @@ func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {
 	return circ.ch.WriteCell(&cell.Cell{CircID: circ.id, Command: linkCmd, Body: body})
 }
 
+func (circ *Circuit) Resolve(host string) ([]net.IP, error) {
+	circ.mu.Lock()
+	sid := circ.nextSID
+	circ.nextSID++
+	if circ.nextSID == 0 {
+		circ.nextSID = 1
+	}
+	wait := make(chan *cell.Relay, 4)
+	circ.waiters[sid] = wait
+	circ.mu.Unlock()
+	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
+		Command:  cell.RelayResolve,
+		StreamID: sid,
+		Data:     cell.EncodeResolve(host),
+	}); err != nil {
+		return nil, err
+	}
+	t := time.NewTimer(15 * time.Second)
+	defer t.Stop()
+	var msg *cell.Relay
+	select {
+	case msg = <-wait:
+	case <-t.C:
+		return nil, fmt.Errorf("timeout waiting for RESOLVED")
+	}
+	circ.mu.Lock()
+	delete(circ.waiters, sid)
+	circ.mu.Unlock()
+	if msg.Command != cell.RelayResolved {
+		return nil, fmt.Errorf("expected RESOLVED, got %d", msg.Command)
+	}
+	ans, err := cell.ParseResolved(msg.Data)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	for _, a := range ans {
+		switch a.Type {
+		case cell.ResolvedErr, cell.ResolvedErrTransient:
+			return nil, fmt.Errorf("resolve error")
+		case cell.ResolvedIPv4, cell.ResolvedIPv6:
+			ips = append(ips, net.IP(a.Value))
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no addresses")
+	}
+	return ips, nil
+}
+
 func (circ *Circuit) Close() error {
 	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 0))
 	return circ.ch.Close()
