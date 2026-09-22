@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
 	"testing"
 )
 
@@ -289,3 +292,89 @@ func TestEd25519CertTruncatedSignature(t *testing.T) {
 
 
 
+func TestRSAIdentityCertDigest(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := EncodeRSAIdentityCert(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := ParseRSAIdentityCert(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RSAIdentityDigest(pub)
+	want := sha1.Sum(x509.MarshalPKCS1PublicKey(&key.PublicKey))
+	if got != want {
+		t.Fatalf("%x vs %x", got, want)
+	}
+}
+
+func TestRSAEdCrossCert(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := EncodeRSAEdCrossCert(edPub, key, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyRSAEdCrossCert(raw, &key.PublicKey, edPub); err != nil {
+		t.Fatal(err)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	if err := VerifyRSAEdCrossCert(raw, &key.PublicKey, other); err == nil {
+		t.Fatal("expected subject mismatch")
+	}
+	raw[len(raw)-1] ^= 0xff
+	if err := VerifyRSAEdCrossCert(raw, &key.PublicKey, edPub); err == nil {
+		t.Fatal("expected signature failure")
+	}
+}
+
+func TestVerifyCERTSRSA(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x509der, err := EncodeRSAIdentityCert(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc, err := EncodeRSAEdCrossCert(edPub, key, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[byte][]byte{
+		CertTypeRSAIDX509:      x509der,
+		CertTypeRSAIDVIdentity: cc,
+	}
+	pub, err := VerifyCERTSRSA(m, edPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if RSAIdentityDigest(pub) != RSAIdentityDigest(&key.PublicKey) {
+		t.Fatal("rsa digest")
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	if _, err := VerifyCERTSRSA(m, other); err == nil {
+		t.Fatal("expected type 7 mismatch")
+	}
+	if _, err := VerifyCERTSRSA(map[byte][]byte{CertTypeRSAIDX509: x509der}, edPub); err == nil {
+		t.Fatal("expected incomplete 2/7")
+	}
+	pub, err = VerifyCERTSRSA(map[byte][]byte{}, edPub)
+	if err != nil || pub != nil {
+		t.Fatal("absent 2/7 should be skipped")
+	}
+}

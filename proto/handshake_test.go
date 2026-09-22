@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"net"
@@ -1362,6 +1363,58 @@ func (f fakeAddr) String() string  { return string(f) }
 
 func TestLinkHandshakeRelayAuth(t *testing.T) {
 	rk, ik, tc := handshakeKeys(t)
+	ln, errc := serveResponder(t, rk, tc)
+	defer ln.Close()
+	cli := dialTLS(t, ln.Addr().String())
+	defer cli.Close()
+	chC := NewChannel(cli)
+	got, err := HandshakeInitiatorRelay(chC, rk.IDPub, ik)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitErr(errc); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(rk.IDPub) {
+		t.Fatal("identity mismatch")
+	}
+}
+
+func TestLinkHandshakeRSACrossCert(t *testing.T) {
+	rk, _, tc := handshakeKeys(t)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rk.RSA = rsaKey
+	ln, errc := serveResponder(t, rk, tc)
+	defer ln.Close()
+	cli := dialTLS(t, ln.Addr().String())
+	defer cli.Close()
+	chC := NewChannel(cli)
+	got, err := HandshakeInitiator(chC, rk.IDPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitErr(errc); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(rk.IDPub) {
+		t.Fatal("identity mismatch")
+	}
+}
+
+func TestLinkHandshakeRelayAuthRSA(t *testing.T) {
+	rk, ik, tc := handshakeKeys(t)
+	var err error
+	rk.RSA, err = rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ik.RSA, err = rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ln, errc := serveResponder(t, rk, tc)
 	defer ln.Close()
 	cli := dialTLS(t, ln.Addr().String())

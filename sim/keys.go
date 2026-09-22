@@ -33,7 +33,7 @@ type RelayKeys struct {
 }
 
 func generateRelayKeys(nickname string, flags []string, advertise net.IP, hosts []string) (*RelayKeys, error) {
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		return nil, fmt.Errorf("rsa: %w", err)
 	}
@@ -87,6 +87,7 @@ func (k *RelayKeys) Responder() proto.ResponderKeys {
 		IDPriv:     k.EdIDPriv,
 		SignPub:    k.EdSignPub,
 		SignPriv:   k.EdSignPriv,
+		RSA:        k.RSA,
 		TLSCertDER: k.TLSCertDER,
 		Advertise:  adv,
 	}
@@ -98,6 +99,7 @@ func (k *RelayKeys) Initiator() proto.InitiatorKeys {
 		IDPriv:   k.EdIDPriv,
 		SignPub:  k.EdSignPub,
 		SignPriv: k.EdSignPriv,
+		RSA:      k.RSA,
 	}
 }
 

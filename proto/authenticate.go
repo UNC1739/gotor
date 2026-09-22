@@ -179,5 +179,8 @@ func verifyInitiatorCERTS(body []byte) (idPub, linkPub ed25519.PublicKey, err er
 	if err := c6.Verify(c4.CertifiedKey[:]); err != nil {
 		return nil, nil, fmt.Errorf("link auth cert: %w", err)
 	}
+	if _, err := certs.VerifyCERTSRSA(m, c4.SigningKey); err != nil {
+		return nil, nil, err
+	}
 	return c4.SigningKey, c6.CertifiedKey[:], nil
 }

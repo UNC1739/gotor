@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"fmt"
 	"net"
@@ -19,6 +20,7 @@ type ResponderKeys struct {
 	IDPriv     ed25519.PrivateKey
 	SignPub    ed25519.PublicKey
 	SignPriv   ed25519.PrivateKey
+	RSA        *rsa.PrivateKey
 	TLSCertDER []byte
 	Advertise  [4]byte
 }
@@ -28,6 +30,7 @@ type InitiatorKeys struct {
 	IDPriv   ed25519.PrivateKey
 	SignPub  ed25519.PublicKey
 	SignPriv ed25519.PrivateKey
+	RSA      *rsa.PrivateKey
 }
 
 func HandshakeInitiator(ch *Channel, expectID ed25519.PublicKey) (ed25519.PublicKey, error) {
@@ -112,10 +115,10 @@ func initiatorAuthenticate(ch *Channel, keys InitiatorKeys, respID ed25519.Publi
 	}
 	idCert := certs.EncodeEd25519Cert(certs.CertTypeIdentityVSigning, certs.KeyTypeEd25519, bytesTo32(keys.SignPub), keys.IDPriv, keys.IDPub, 24*365*10)
 	linkCert := certs.EncodeEd25519Cert(certs.CertTypeSigningVLinkAuth, certs.KeyTypeEd25519, bytesTo32(linkPub), keys.SignPriv, nil, 24*365*10)
-	certsBody := certs.EncodeCERTS([][2][]byte{
-		{{certs.CertTypeIdentityVSigning}, idCert},
-		{{certs.CertTypeSigningVLinkAuth}, linkCert},
-	})
+	certsBody, err := encodeLinkCERTS(idCert, linkCert, certs.CertTypeSigningVLinkAuth, keys.RSA, keys.IDPub)
+	if err != nil {
+		return err
+	}
 	initCerts := &cell.Cell{Command: cell.CmdCerts, Body: certsBody}
 	if err := ch.WriteCell(initCerts); err != nil {
 		return err
@@ -154,10 +157,10 @@ func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
 	tlsDigest := sha256.Sum256(keys.TLSCertDER)
 	idCert := certs.EncodeEd25519Cert(certs.CertTypeIdentityVSigning, certs.KeyTypeEd25519, bytesTo32(keys.SignPub), keys.IDPriv, keys.IDPub, 24*365*10)
 	tlsCert := certs.EncodeEd25519Cert(certs.CertTypeSigningVTLSCert, certs.KeyTypeSHA256X509, tlsDigest, keys.SignPriv, nil, 24*365*10)
-	certsBody := certs.EncodeCERTS([][2][]byte{
-		{{certs.CertTypeIdentityVSigning}, idCert},
-		{{certs.CertTypeSigningVTLSCert}, tlsCert},
-	})
+	certsBody, err := encodeLinkCERTS(idCert, tlsCert, certs.CertTypeSigningVTLSCert, keys.RSA, keys.IDPub)
+	if err != nil {
+		return err
+	}
 	sentCerts := &cell.Cell{Command: cell.CmdCerts, Body: certsBody}
 	if err := ch.WriteCell(sentCerts); err != nil {
 		return err
@@ -249,6 +252,9 @@ func verifyResponderCERTS(ch *Channel, body []byte, expect ed25519.PublicKey) (e
 	sum := sha256.Sum256(st.PeerCertificates[0].Raw)
 	if sum != c5.CertifiedKey {
 		return nil, fmt.Errorf("TLS certificate digest mismatch")
+	}
+	if _, err := certs.VerifyCERTSRSA(m, c4.SigningKey); err != nil {
+		return nil, err
 	}
 	return c4.SigningKey, nil
 }
