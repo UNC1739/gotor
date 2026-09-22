@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 
@@ -14,6 +15,8 @@ import (
 )
 
 var SupportedLink = []uint16{4, 5}
+
+var ErrIdentityMismatch = errors.New("relay ed25519 identity mismatch")
 
 type ResponderKeys struct {
 	IDPub      ed25519.PublicKey
@@ -236,7 +239,7 @@ func verifyResponderCERTS(ch *Channel, body []byte, expect ed25519.PublicKey) (e
 		return nil, fmt.Errorf("identity cert: %w", err)
 	}
 	if expect != nil && !bytes.Equal(expect, c4.SigningKey) {
-		return nil, fmt.Errorf("relay ed25519 identity mismatch")
+		return nil, ErrIdentityMismatch
 	}
 	c5, err := certs.ParseEd25519Cert(raw5)
 	if err != nil {

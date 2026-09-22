@@ -28,6 +28,41 @@ const (
 	CmdAuthenticate     = 131
 )
 
+const (
+	DestroyNone          = 0
+	DestroyProtocol      = 1
+	DestroyInternal      = 2
+	DestroyRequested     = 3
+	DestroyHibernating   = 4
+	DestroyResourceLimit = 5
+	DestroyConnectFailed = 6
+	DestroyORIdentity    = 7
+	DestroyChannelClosed = 8
+	DestroyFinished      = 9
+	DestroyTimeout       = 10
+	DestroyDestroyed     = 11
+	DestroyNoSuchService = 12
+)
+
+type DestroyError struct{ Reason byte }
+
+func (e DestroyError) Error() string {
+	return fmt.Sprintf("DESTROY reason=%d", e.Reason)
+}
+
+type EndError struct{ Reason byte }
+
+func (e EndError) Error() string {
+	return fmt.Sprintf("stream rejected reason=%d", e.Reason)
+}
+
+func DestroyReason(body []byte) byte {
+	if len(body) == 0 {
+		return DestroyNone
+	}
+	return body[0]
+}
+
 type Cell struct {
 	CircID  uint32
 	Command byte

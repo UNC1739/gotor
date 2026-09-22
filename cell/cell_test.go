@@ -143,7 +143,7 @@ func TestCreateFastCells(t *testing.T) {
 }
 
 func TestDestroy(t *testing.T) {
-	c := Destroy(0x80000002, 6)
+	c := Destroy(0x80000002, DestroyConnectFailed)
 	var buf bytes.Buffer
 	if err := c.Write(&buf, 4); err != nil {
 		t.Fatal(err)
@@ -152,8 +152,20 @@ func TestDestroy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Command != CmdDestroy || got.Body[0] != 6 {
+	if got.Command != CmdDestroy || got.Body[0] != DestroyConnectFailed {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDestroyReasons(t *testing.T) {
+	if DestroyNone != 0 || DestroyProtocol != 1 || DestroyInternal != 2 || DestroyRequested != 3 {
+		t.Fatalf("none/protocol/internal/requested")
+	}
+	if DestroyConnectFailed != 6 || DestroyORIdentity != 7 || DestroyChannelClosed != 8 || DestroyDestroyed != 11 {
+		t.Fatalf("connect/identity/channel/destroyed")
+	}
+	if DestroyReason(nil) != DestroyNone || DestroyReason([]byte{DestroyRequested}) != DestroyRequested {
+		t.Fatal("DestroyReason")
 	}
 }
 
