@@ -33,6 +33,28 @@ func TestParseConsensusAndDescriptors(t *testing.T) {
 	}
 }
 
+func TestParseBandwidth(t *testing.T) {
+	ident := make([]byte, 20)
+	ident[0] = 1
+	cons := "network-status-version 3\nvote-status consensus\n" +
+		"r gotor1 " + B64(ident) + " " + B64(ident) + " 2020-01-01 00:00:00 10.0.0.2 9001 0\n" +
+		"s Guard Running Valid Fast\n" +
+		"w Bandwidth=1234\n" +
+		"directory-footer\n" +
+		"bandwidth-weights Wgg=5000 Wee=9000\n"
+	relays, err := ParseConsensus(cons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relays[0].Bandwidth != 1234 {
+		t.Fatalf("bandwidth %d", relays[0].Bandwidth)
+	}
+	w := ParseBandwidthWeights(cons)
+	if w["Wgg"] != 5000 || w["Wee"] != 9000 {
+		t.Fatalf("%v", w)
+	}
+}
+
 func TestParseProto(t *testing.T) {
 	ident := make([]byte, 20)
 	ident[0] = 1

@@ -55,6 +55,7 @@ func (n *Network) consensusDoc() string {
 			0,
 		)
 		fmt.Fprintf(&b, "s %s Running Stable Valid Fast\n", strings.Join(k.Flags, " "))
+		fmt.Fprintf(&b, "w Bandwidth=1000\n")
 		fmt.Fprintf(&b, "pr Relay=1-4\n")
 		if has(k.Flags, "Exit") {
 			fmt.Fprintf(&b, "p accept 1-65535\n")
@@ -63,6 +64,7 @@ func (n *Network) consensusDoc() string {
 		}
 	}
 	fmt.Fprintf(&b, "directory-footer\n")
+	fmt.Fprintf(&b, "bandwidth-weights Wgg=10000 Wgm=10000 Weg=10000 Wee=10000 Wem=10000\n")
 	return n.signDoc(b.String())
 }
 
@@ -123,6 +125,7 @@ func (n *Network) microConsensusDoc() string {
 		)
 		fmt.Fprintf(&b, "s %s Running Stable Valid Fast\n", strings.Join(k.Flags, " "))
 		fmt.Fprintf(&b, "m %s\n", directory.B64(sum[:]))
+		fmt.Fprintf(&b, "w Bandwidth=1000\n")
 		fmt.Fprintf(&b, "pr Relay=1-4\n")
 		if has(k.Flags, "Exit") {
 			fmt.Fprintf(&b, "p accept 1-65535\n")
@@ -131,6 +134,7 @@ func (n *Network) microConsensusDoc() string {
 		}
 	}
 	fmt.Fprintf(&b, "directory-footer\n")
+	fmt.Fprintf(&b, "bandwidth-weights Wgg=10000 Wgm=10000 Weg=10000 Wee=10000 Wem=10000\n")
 	return n.signDoc(b.String())
 }
 
@@ -144,7 +148,9 @@ func (n *Network) serveMicro(w http.ResponseWriter, spec string) {
 	var b strings.Builder
 	for _, r := range n.relays {
 		body, sum := n.microdesc(r.Keys)
-		if _, ok := want[directory.B64(sum[:])]; ok {
+		_, b64ok := want[directory.B64(sum[:])]
+		_, hexok := want[fmt.Sprintf("%x", sum[:])]
+		if b64ok || hexok {
 			b.WriteString(body)
 		}
 	}
