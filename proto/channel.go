@@ -160,7 +160,7 @@ func (ch *Channel) Err() error {
 func PickCircID(used map[uint32]struct{}) (uint32, error) {
 	for i := 0; i < 64; i++ {
 		var b [4]byte
-		if _, err := io.ReadFull(randReader(), b[:]); err != nil {
+		if _, err := io.ReadFull(randReader, b[:]); err != nil {
 			return 0, err
 		}
 		id := binaryBE(b[:]) | 0x80000000

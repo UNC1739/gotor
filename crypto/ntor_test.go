@@ -125,3 +125,99 @@ func hkdfSpec(keySeed []byte, n int) []byte {
 	}
 	return out[:n]
 }
+
+func TestNtorHandshakeLayout(t *testing.T) {
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id [20]byte
+	id[0] = 0xab
+	hs, _, err := NtorClientHandshake(rand.Reader, id, serverKey.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(hs[0:20], id[:]) {
+		t.Fatal("NODEID")
+	}
+	if !bytes.Equal(hs[20:52], serverKey.Public[:]) {
+		t.Fatal("KEYID")
+	}
+}
+
+func TestNtorRejectsDegenerateY(t *testing.T) {
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id [20]byte
+	_, st, err := NtorClientHandshake(rand.Reader, id, serverKey.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Finish(make([]byte, NtorRLen)); err == nil {
+		t.Fatal("all-zero Y")
+	}
+}
+
+func TestNtorRejectsDegenerateX(t *testing.T) {
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id [20]byte
+	srv := &NtorServer{ID: id, Key: serverKey}
+	hs, _, err := NtorClientHandshake(rand.Reader, id, serverKey.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(hs[52:84], make([]byte, 32))
+	if _, _, err := srv.Reply(rand.Reader, hs); err == nil {
+		t.Fatal("all-zero X")
+	}
+}
+
+func TestNtorRNGFailure(t *testing.T) {
+	if _, err := GenerateKeyPair(bytes.NewReader(nil)); err == nil {
+		t.Fatal("keypair rng")
+	}
+	var id [20]byte
+	var pub [32]byte
+	if _, _, err := NtorClientHandshake(bytes.NewReader(nil), id, pub); err == nil {
+		t.Fatal("handshake rng")
+	}
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &NtorServer{ID: id, Key: serverKey}
+	hs, _, err := NtorClientHandshake(rand.Reader, id, serverKey.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := srv.Reply(bytes.NewReader(nil), hs); err == nil {
+		t.Fatal("reply rng")
+	}
+}
+
+func TestNtorRejectsZeroOnionKey(t *testing.T) {
+	var id [20]byte
+	var zero [32]byte
+	_, st, err := NtorClientHandshake(rand.Reader, id, zero)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, NtorRLen)
+	copy(reply[:32], y.Public[:])
+	if _, err := st.Finish(reply); err == nil {
+		t.Fatal("all-zero B")
+	}
+}
+
+
+
+

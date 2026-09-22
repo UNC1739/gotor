@@ -143,7 +143,11 @@ func (s *Stream) Read(p []byte) (int, error) {
 }
 
 func (s *Stream) Write(p []byte) (int, error) {
+	if s.closed.Load() {
+		return 0, io.ErrClosedPipe
+	}
 	sent := 0
+
 	for len(p) > 0 {
 		n := cell.MaxRelayData
 		if n > len(p) {

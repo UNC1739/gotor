@@ -9,9 +9,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math/big"
 	"time"
 )
+
+var certRand io.Reader = rand.Reader
 
 const (
 	CertTypeIdentityVSigning = 4
@@ -214,11 +217,11 @@ func putAddr(buf []byte, a NetIP) int {
 }
 
 func SelfSignedTLS(hosts []string, ips [][]byte) (*tls.Certificate, []byte, error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	pub, priv, err := ed25519.GenerateKey(certRand)
 	if err != nil {
 		return nil, nil, err
 	}
-	serial, err := rand.Int(rand.Reader, big.NewInt(1<<62))
+	serial, err := rand.Int(certRand, big.NewInt(1<<62))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +239,7 @@ func SelfSignedTLS(hosts []string, ips [][]byte) (*tls.Certificate, []byte, erro
 			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
 		}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	der, err := x509.CreateCertificate(certRand, tmpl, tmpl, pub, priv)
 	if err != nil {
 		return nil, nil, err
 	}
