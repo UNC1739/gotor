@@ -26,7 +26,10 @@ func (c *Client) PickPath(n int) ([]*directory.Relay, error) {
 		}
 	}
 	if n == 1 {
-		r := pickWeighted(all, nil)
+		r := pickWeighted(exits, nil)
+		if r == nil {
+			r = pickWeighted(all, nil)
+		}
 		if r == nil {
 			return nil, fmt.Errorf("no relays")
 		}
@@ -50,15 +53,15 @@ func (c *Client) PickPath(n int) ([]*directory.Relay, error) {
 		if m == nil {
 			m = pickWeighted(all, []*directory.Relay{g, e})
 		}
-		if m == nil {
-			m = g
-		}
 	}
 	if g == nil || e == nil {
 		return nil, fmt.Errorf("not enough relays for a %d-hop path", n)
 	}
 	if n == 2 {
 		return []*directory.Relay{g, e}, nil
+	}
+	if m == nil {
+		return nil, fmt.Errorf("not enough relays for a %d-hop path", n)
 	}
 	return []*directory.Relay{g, m, e}, nil
 }

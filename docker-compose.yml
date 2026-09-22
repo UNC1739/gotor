@@ -68,6 +68,63 @@ services:
     working_dir: /src
     command: ["go", "test", "-count=1", "-timeout", "120s", "./..."]
 
+  chutney:
+    profiles: ["chutney"]
+    build:
+      context: .
+      dockerfile: Dockerfile.chutney
+    cap_add:
+      - NET_ADMIN
+    environment:
+      CHUTNEY_IP: "172.28.0.50"
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.50
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "c=$$(wget -q -O- http://127.0.0.1:7000/tor/status-vote/current/consensus) || exit 1; echo \"$$c\" | grep -q directory-signature || exit 1; [ $$(echo \"$$c\" | grep -c '^r ') -ge 3 ] || exit 1; echo \"$$c\" | grep '^s ' | grep -q Exit || exit 1; [ $$(wget -q -O- http://127.0.0.1:7000/tor/server/all | grep -c ntor-onion-key) -ge 3 ]",
+        ]
+      interval: 5s
+      timeout: 8s
+      retries: 60
+      start_period: 40s
+
+  chutney-client:
+    profiles: ["chutney"]
+    build: .
+    command: ["gotor"]
+    environment:
+      GOTOR_DIR: "172.28.0.50:7000"
+      GOTOR_SOCKS: "0.0.0.0:9050"
+      GOTOR_HOPS: "3"
+      GOTOR_CREATE_FAST: "0"
+    depends_on:
+      chutney:
+        condition: service_healthy
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.51
+
+  chutney-check:
+    profiles: ["chutney"]
+    build: .
+    command: ["gotor-check"]
+    environment:
+      GOTOR_SOCKS: "172.28.0.51:9050"
+      GOTOR_CHECK_URL: "http://172.28.0.10:8080/"
+    depends_on:
+      origin:
+        condition: service_healthy
+      chutney:
+        condition: service_healthy
+      chutney-client:
+        condition: service_started
+    networks:
+      tornet:
+        ipv4_address: 172.28.0.52
+
 networks:
   tornet:
     ipam:
