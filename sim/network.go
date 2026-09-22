@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,11 +18,12 @@ type Config struct {
 }
 
 type Network struct {
-	cfg     Config
-	relays  []*Relay
-	dirLn   net.Listener
-	dirSrv  *http.Server
-	log     *slog.Logger
+	cfg       Config
+	relays    []*Relay
+	authority *rsa.PrivateKey
+	dirLn     net.Listener
+	dirSrv    *http.Server
+	log       *slog.Logger
 }
 
 func Launch(cfg Config) (*Network, error) {
@@ -45,6 +48,11 @@ func Launch(cfg Config) (*Network, error) {
 		{"gotor3", []string{"Exit"}},
 	}
 	n := &Network{cfg: cfg, log: log}
+	auth, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		return nil, fmt.Errorf("authority key: %w", err)
+	}
+	n.authority = auth
 	for _, role := range roles {
 		keys, err := generateRelayKeys(role.name, role.flags, adv, hosts)
 		if err != nil {
