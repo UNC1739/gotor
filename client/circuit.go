@@ -35,6 +35,8 @@ type Circuit struct {
 	nextSID   uint16
 	waiters   map[uint16]chan *cell.Relay
 	ctrl      chan *cell.Relay
+	done      chan struct{}
+	dead      error
 }
 
 func (circ *Circuit) ID() uint32 { return circ.id }
@@ -70,6 +72,7 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 		nextSID:  1,
 		waiters:  map[uint16]chan *cell.Relay{},
 		ctrl:     make(chan *cell.Relay, 8),
+		done:     make(chan struct{}),
 		relays:   relays,
 		circPack: cell.CircWindowStart,
 		circDel:  cell.CircWindowStart,
@@ -153,17 +156,13 @@ func (circ *Circuit) waitLink(cmd byte, d time.Duration) (*cell.Cell, error) {
 		select {
 		case c, ok := <-circ.inc:
 			if !ok {
-				return nil, fmt.Errorf("channel closed")
+				return nil, cell.DestroyError{Reason: cell.DestroyChannelClosed}
 			}
 			if c.Command == cmd {
 				return c, nil
 			}
 			if c.Command == cell.CmdDestroy {
-				reason := byte(0)
-				if len(c.Body) > 0 {
-					reason = c.Body[0]
-				}
-				return nil, fmt.Errorf("DESTROY reason=%d", reason)
+				return nil, cell.DestroyError{Reason: cell.DestroyReason(c.Body)}
 			}
 			if c.Command == cell.CmdRelay || c.Command == cell.CmdRelayEarly {
 				circ.handleRelay(c)
@@ -176,10 +175,38 @@ func (circ *Circuit) waitLink(cmd byte, d time.Duration) (*cell.Cell, error) {
 
 func (circ *Circuit) dispatch() {
 	for c := range circ.inc {
-		if c.Command == cell.CmdRelay || c.Command == cell.CmdRelayEarly {
+		switch c.Command {
+		case cell.CmdRelay, cell.CmdRelayEarly:
 			circ.handleRelay(c)
+		case cell.CmdDestroy:
+			circ.fail(cell.DestroyError{Reason: cell.DestroyReason(c.Body)})
+			return
 		}
 	}
+	circ.fail(cell.DestroyError{Reason: cell.DestroyChannelClosed})
+}
+
+func (circ *Circuit) fail(err error) {
+	circ.mu.Lock()
+	if circ.dead != nil {
+		circ.mu.Unlock()
+		return
+	}
+	circ.dead = err
+	close(circ.done)
+	for _, s := range circ.streams {
+		s.mu.Lock()
+		if s.err == nil {
+			s.err = err
+			s.closed.Store(true)
+			s.cond.Broadcast()
+		}
+		s.mu.Unlock()
+	}
+	circ.mu.Unlock()
+	circ.flowMu.Lock()
+	circ.flowCond.Broadcast()
+	circ.flowMu.Unlock()
 }
 
 func (circ *Circuit) handleRelay(c *cell.Cell) {
@@ -303,10 +330,8 @@ func (circ *Circuit) noteDeliver(s *Stream) {
 }
 
 func (circ *Circuit) kill() {
-	circ.flowMu.Lock()
-	circ.flowCond.Broadcast()
-	circ.flowMu.Unlock()
-	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 1))
+	circ.fail(cell.DestroyError{Reason: cell.DestroyProtocol})
+	_ = circ.ch.WriteCell(cell.Destroy(circ.id, cell.DestroyProtocol))
 	_ = circ.ch.Close()
 }
 
@@ -349,6 +374,14 @@ func (circ *Circuit) extend(r *directory.Relay) error {
 		}
 		circ.hops = append(circ.hops, hop)
 		return nil
+	case <-circ.done:
+		circ.mu.Lock()
+		err := circ.dead
+		circ.mu.Unlock()
+		if err == nil {
+			err = cell.DestroyError{Reason: cell.DestroyChannelClosed}
+		}
+		return err
 	case <-t.C:
 		return fmt.Errorf("timeout waiting for EXTENDED2")
 	}
@@ -435,7 +468,7 @@ func (circ *Circuit) Resolve(host string) ([]net.IP, error) {
 }
 
 func (circ *Circuit) Close() error {
-	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 0))
+	_ = circ.ch.WriteCell(cell.Destroy(circ.id, cell.DestroyRequested))
 	return circ.ch.Close()
 }
 

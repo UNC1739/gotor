@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adam/gotor/cell"
 	"github.com/adam/gotor/client"
 	"github.com/adam/gotor/directory"
 	"github.com/adam/gotor/sim"
@@ -499,8 +500,9 @@ func TestSendmeStreamWindow(t *testing.T) {
 func TestConnectRefused(t *testing.T) {
 	circ := circuit(t, 3)
 	_, err := circ.Dial("127.0.0.1", 1)
-	if err == nil {
-		t.Fatal("expected begin failure")
+	var end cell.EndError
+	if !errors.As(err, &end) || end.Reason != cell.EndReasonConnectRefused {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -521,6 +523,31 @@ func TestHandshakeIdentityMismatch(t *testing.T) {
 	_, err := c.BuildCircuit(c.Relays[:1])
 	if err == nil {
 		t.Fatal("expected identity mismatch")
+	}
+}
+
+func TestExtendIdentityDestroy(t *testing.T) {
+	c := bootstrap(t)
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid := path[1].Ed25519ID
+	if len(mid) != 32 {
+		t.Fatal("missing middle ed25519")
+	}
+	mid[0] ^= 0xff
+	_, err = c.BuildCircuit(path)
+	var d cell.DestroyError
+	if !errors.As(err, &d) || d.Reason != cell.DestroyORIdentity {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestCircuitCloseRequested(t *testing.T) {
+	circ := circuit(t, 1)
+	if err := circ.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

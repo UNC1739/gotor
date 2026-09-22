@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -187,7 +188,7 @@ func (r *Relay) handleCell(ch *proto.Channel, c *cell.Cell) {
 func (r *Relay) onCreate2(ch *proto.Channel, c *cell.Cell) {
 	htype, hdata, err := cell.ParseCreate2(c.Body)
 	if err != nil {
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 		return
 	}
 	var reply []byte
@@ -199,23 +200,23 @@ func (r *Relay) onCreate2(ch *proto.Channel, c *cell.Cell) {
 	case gtcrypto.HTypeNtorV3:
 		var id [32]byte
 		if len(r.Keys.EdIDPub) != 32 {
-			_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+			_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 			return
 		}
 		copy(id[:], r.Keys.EdIDPub)
 		srv := &gtcrypto.NtorV3Server{ID: id, Key: r.Keys.NTor}
 		reply, keys, _, err = srv.Reply(rand.Reader, hdata, nil, []byte(gtcrypto.NtorV3CircuitVerify))
 	default:
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 		return
 	}
 	if err != nil {
 		r.log.Debug("create2 failed", "relay", r.Keys.Nickname, "htype", htype, "err", err)
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 		return
 	}
 	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyInternal))
 		return
 	}
 	if err := ch.WriteCell(cell.Created2(c.CircID, reply)); err != nil {
@@ -246,16 +247,16 @@ func (r *Relay) installHop(ch *proto.Channel, circID uint32, keys *gtcrypto.Circ
 func (r *Relay) onCreateFast(ch *proto.Channel, c *cell.Cell) {
 	x, err := cell.ParseCreateFast(c.Body)
 	if err != nil {
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 		return
 	}
 	y, kh, keys, err := gtcrypto.CreateFastReply(rand.Reader, x)
 	if err != nil {
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyProtocol))
 		return
 	}
 	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
-		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
+		_ = ch.WriteCell(cell.Destroy(c.CircID, cell.DestroyInternal))
 		return
 	}
 	if err := ch.WriteCell(cell.CreatedFast(c.CircID, y, kh)); err != nil {
@@ -341,17 +342,17 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 }
 
 func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
-	fail := func() {
-		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, 6))
+	fail := func(reason byte) {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, reason))
 	}
 	ext, err := cell.ParseExtend2(msg.Data)
 	if err != nil {
-		fail()
+		fail(cell.DestroyProtocol)
 		return
 	}
 	ip, port, ok := ext.IPv4Port()
 	if !ok {
-		fail()
+		fail(cell.DestroyProtocol)
 		return
 	}
 	addr := net.JoinHostPort(net.IP(ip[:]).String(), fmt.Sprintf("%d", port))
@@ -359,7 +360,7 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, tlsCfg)
 	if err != nil {
 		r.log.Debug("extend dial failed", "addr", addr, "err", err)
-		fail()
+		fail(cell.DestroyConnectFailed)
 		return
 	}
 	ch := proto.NewChannel(conn)
@@ -372,13 +373,17 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 	if _, err := proto.HandshakeInitiatorRelay(ch, expect, r.Keys.Initiator()); err != nil {
 		r.log.Debug("extend handshake failed", "err", err)
 		ch.Close()
-		fail()
+		reason := byte(cell.DestroyConnectFailed)
+		if errors.Is(err, proto.ErrIdentityMismatch) {
+			reason = cell.DestroyORIdentity
+		}
+		fail(reason)
 		return
 	}
 	nextID, err := proto.PickCircID(nil)
 	if err != nil {
 		ch.Close()
-		fail()
+		fail(cell.DestroyResourceLimit)
 		return
 	}
 	ci.next = ch
@@ -389,7 +394,7 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 	r.mu.Unlock()
 	r.ensureServe(ch)
 	if err := ch.WriteCell(cell.Create2(nextID, ext.HType, ext.HData)); err != nil {
-		fail()
+		fail(cell.DestroyConnectFailed)
 		return
 	}
 	t := time.NewTimer(10 * time.Second)
@@ -398,7 +403,7 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 	case created := <-ci.extendWait:
 		hdata, err := cell.ParseCreated2(created.Body)
 		if err != nil {
-			fail()
+			fail(cell.DestroyProtocol)
 			return
 		}
 		body := cell.EncodeRelay(cell.Relay{Command: cell.RelayExtended2, Data: cell.EncodeExtended2(hdata)})
@@ -407,7 +412,7 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 		ci.mu.Unlock()
 		_ = ci.prev.WriteCell(&cell.Cell{CircID: ci.prevID, Command: cell.CmdRelay, Body: body})
 	case <-t.C:
-		fail()
+		fail(cell.DestroyTimeout)
 	}
 }
 
@@ -637,10 +642,10 @@ func (r *Relay) destroy(ch *proto.Channel, id uint32, fromNext bool) {
 		r.closeStream(ci, sid)
 	}
 	if ci.next != nil && !fromNext {
-		_ = ci.next.WriteCell(cell.Destroy(ci.nextID, 11))
+		_ = ci.next.WriteCell(cell.Destroy(ci.nextID, cell.DestroyDestroyed))
 	}
 	if ci.prev != nil && fromNext {
-		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, 11))
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyDestroyed))
 	}
 }
 

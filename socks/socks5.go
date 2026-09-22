@@ -2,10 +2,13 @@ package socks
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
+
+	"github.com/adam/gotor/cell"
 )
 
 func Serve(ln net.Listener, dial func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error)) error {
@@ -51,7 +54,12 @@ func Handle(c net.Conn, dial func(host string, port uint16, user, pass string) (
 	}
 	rw, err := dial(host, port, user, pass)
 	if err != nil {
-		_, _ = c.Write([]byte{5, 1, 0, 1, 0, 0, 0, 0, 0, 0})
+		status := byte(1)
+		var end cell.EndError
+		if errors.As(err, &end) && end.Reason == cell.EndReasonConnectRefused {
+			status = 5
+		}
+		_, _ = c.Write([]byte{5, status, 0, 1, 0, 0, 0, 0, 0, 0})
 		return err
 	}
 	defer rw.Close()

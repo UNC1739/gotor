@@ -110,11 +110,19 @@ func (circ *Circuit) waitConnected(s *Stream, wait <-chan *cell.Relay) (*Stream,
 			if len(msg.Data) > 0 {
 				reason = msg.Data[0]
 			}
-			return nil, fmt.Errorf("stream rejected reason=%d", reason)
+			return nil, cell.EndError{Reason: reason}
 		}
 		if msg.Command != cell.RelayConnected {
 			return nil, fmt.Errorf("expected CONNECTED, got %d", msg.Command)
 		}
+	case <-circ.done:
+		circ.mu.Lock()
+		err := circ.dead
+		circ.mu.Unlock()
+		if err == nil {
+			err = cell.DestroyError{Reason: cell.DestroyChannelClosed}
+		}
+		return nil, err
 	case <-t.C:
 		return nil, fmt.Errorf("timeout waiting for CONNECTED")
 	}
