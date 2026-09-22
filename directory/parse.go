@@ -21,6 +21,7 @@ type Relay struct {
 	Ed25519ID    []byte
 	ExitAccept   bool
 	Proto        map[string][]int
+	MicroHash    []byte
 }
 
 func (r *Relay) Has(flag string) bool {
@@ -54,16 +55,25 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 		}
 		switch fields[0] {
 		case "r":
-			if len(fields) < 9 {
+			if len(fields) < 8 {
 				return nil, fmt.Errorf("short r line")
 			}
 			ident, err := b64(fields[2], 20)
 			if err != nil {
 				return nil, fmt.Errorf("identity: %w", err)
 			}
-			ip := net.ParseIP(fields[6])
-			orport, _ := strconv.Atoi(fields[7])
-			dirport, _ := strconv.Atoi(fields[8])
+			ns := len(fields) >= 9 && !strings.Contains(fields[3], "-")
+			var ip net.IP
+			var orport, dirport int
+			if ns {
+				ip = net.ParseIP(fields[6])
+				orport, _ = strconv.Atoi(fields[7])
+				dirport, _ = strconv.Atoi(fields[8])
+			} else {
+				ip = net.ParseIP(fields[5])
+				orport, _ = strconv.Atoi(fields[6])
+				dirport, _ = strconv.Atoi(fields[7])
+			}
 			cur = &Relay{
 				Nickname: fields[1],
 				Address:  ip,
@@ -93,6 +103,15 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 				continue
 			}
 			cur.Proto = parseProtoItems(fields[1:])
+		case "m":
+			if cur == nil || len(fields) < 2 {
+				continue
+			}
+			raw, err := b64(fields[1], 32)
+			if err != nil {
+				continue
+			}
+			cur.MicroHash = raw
 		}
 	}
 	if err := sc.Err(); err != nil {

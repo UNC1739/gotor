@@ -1,6 +1,9 @@
 package directory
 
-import "testing"
+import (
+	"crypto/sha256"
+	"testing"
+)
 
 func TestParseConsensusAndDescriptors(t *testing.T) {
 	ident := make([]byte, 20)
@@ -55,6 +58,35 @@ func TestParseProto(t *testing.T) {
 	}
 	if relays[0].Supports("Relay", 4) || !relays[0].Supports("Relay", 3) {
 		t.Fatalf("descriptor proto %v", relays[0].Proto)
+	}
+}
+
+func TestParseMicrodescriptors(t *testing.T) {
+	ident := make([]byte, 20)
+	ident[0] = 1
+	ntor := make([]byte, 32)
+	ntor[0] = 2
+	ed := make([]byte, 32)
+	ed[0] = 3
+	micro := "onion-key\nntor-onion-key " + B64(ntor) + "\nid ed25519 " + B64(ed) + "\np accept 1-65535\n"
+	sum := sha256.Sum256([]byte(micro))
+	cons := "network-status-version 3 microdesc\nvote-status consensus\n" +
+		"r gotor1 " + B64(ident) + " 2020-01-01 00:00:00 10.0.0.2 9001 0\n" +
+		"s Guard Running Valid Fast\n" +
+		"m " + B64(sum[:]) + "\n" +
+		"directory-footer\n"
+	relays, err := ParseConsensus(cons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(relays) != 1 || relays[0].ORPort != 9001 || len(relays[0].MicroHash) != 32 {
+		t.Fatalf("%+v", relays[0])
+	}
+	if err := ParseMicrodescriptors(micro, relays); err != nil {
+		t.Fatal(err)
+	}
+	if relays[0].NTorOnionKey[0] != 2 || relays[0].Ed25519ID[0] != 3 || !relays[0].ExitAccept {
+		t.Fatalf("%+v", relays[0])
 	}
 }
 
