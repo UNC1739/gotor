@@ -185,3 +185,11 @@ func ParseCreated2(body []byte) ([]byte, error) {
 func Destroy(circID uint32, reason byte) *Cell {
 	return &Cell{CircID: circID, Command: CmdDestroy, Body: []byte{reason}}
 }
+
+func Padding() *Cell {
+	return &Cell{Command: CmdPadding}
+}
+
+func Vpadding(body []byte) *Cell {
+	return &Cell{Command: CmdVpadding, Body: body}
+}

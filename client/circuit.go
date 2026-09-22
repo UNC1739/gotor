@@ -169,6 +169,9 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 		circ.creditSendme(msg.StreamID)
 		return
 	}
+	if msg.Command == cell.RelayDrop {
+		return
+	}
 	if msg.StreamID == 0 {
 		select {
 		case circ.ctrl <- msg:
@@ -290,6 +293,18 @@ func (circ *Circuit) extend(r *directory.Relay) error {
 	case <-t.C:
 		return fmt.Errorf("timeout waiting for EXTENDED2")
 	}
+}
+
+func (circ *Circuit) SendPadding() error {
+	return circ.ch.WriteCell(cell.Padding())
+}
+
+func (circ *Circuit) SendVpadding(n int) error {
+	return circ.ch.WriteCell(cell.Vpadding(make([]byte, n)))
+}
+
+func (circ *Circuit) Drop(hop int) error {
+	return circ.sendRelay(hop, cell.CmdRelay, cell.Relay{Command: cell.RelayDrop})
 }
 
 func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {

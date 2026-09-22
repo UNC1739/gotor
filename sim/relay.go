@@ -280,6 +280,7 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		r.closeStream(ci, msg.StreamID)
 	case cell.RelaySendme:
 		r.creditSendme(ci, msg.StreamID)
+	case cell.RelayDrop:
 	default:
 		r.log.Debug("unhandled relay cmd", "cmd", msg.Command, "relay", r.Keys.Nickname)
 	}
