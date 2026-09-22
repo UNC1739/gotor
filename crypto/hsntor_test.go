@@ -43,3 +43,39 @@ func TestIntroduceEncryptDecrypt(t *testing.T) {
 		t.Fatal("expected mac fail")
 	}
 }
+
+func TestHSNtorFinish(t *testing.T) {
+	authPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := make([]byte, 32)
+	pt := []byte("intro")
+	blob, cst, err := IntroduceEncryptClient(enc.Public[:], authPub, sub, pt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, sst, err := IntroduceDecryptServer(enc.Private[:], authPub, sub, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, pt) {
+		t.Fatal("plaintext")
+	}
+	keys, err := cst.Finish(sst.Handshake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(keys.Kf, sst.Keys.Kf) || !bytes.Equal(keys.Kb, sst.Keys.Kb) {
+		t.Fatal("key mismatch")
+	}
+	bad := append([]byte(nil), sst.Handshake...)
+	bad[40] ^= 0xff
+	if _, err := cst.Finish(bad); err == nil {
+		t.Fatal("expected AUTH fail")
+	}
+}

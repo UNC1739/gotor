@@ -8,6 +8,7 @@ import (
 	"hash"
 
 	"github.com/adam/gotor/cell"
+	"golang.org/x/crypto/sha3"
 )
 
 type Hop struct {
@@ -43,6 +44,29 @@ func NewHop(k *CircuitKeys) (*Hop, error) {
 
 func (h *Hop) KH() []byte { return h.kh }
 
+func NewHopHS(k *CircuitKeys) (*Hop, error) {
+	fb, err := aes.NewCipher(k.Kf)
+	if err != nil {
+		return nil, err
+	}
+	bb, err := aes.NewCipher(k.Kb)
+	if err != nil {
+		return nil, err
+	}
+	iv := make([]byte, aes.BlockSize)
+	fd := sha3.New256()
+	fd.Write(k.Df)
+	bd := sha3.New256()
+	bd.Write(k.Db)
+	return &Hop{
+		fDigest: fd,
+		bDigest: bd,
+		fStream: cipher.NewCTR(fb, iv),
+		bStream: cipher.NewCTR(bb, append([]byte(nil), iv...)),
+		kh:      append([]byte(nil), k.KH...),
+	}, nil
+}
+
 func cloneHash(h hash.Hash) hash.Hash {
 	m, ok := h.(encoding.BinaryMarshaler)
 	if !ok {
@@ -53,10 +77,18 @@ func cloneHash(h hash.Hash) hash.Hash {
 		return nil
 	}
 	c := sha1.New()
-	if err := c.(encoding.BinaryUnmarshaler).UnmarshalBinary(b); err != nil {
+	if err := c.(encoding.BinaryUnmarshaler).UnmarshalBinary(b); err == nil {
+		return c
+	}
+	c3 := sha3.New256()
+	u, ok := c3.(encoding.BinaryUnmarshaler)
+	if !ok {
 		return nil
 	}
-	return c
+	if err := u.UnmarshalBinary(b); err != nil {
+		return nil
+	}
+	return c3
 }
 
 func updateDigest(h hash.Hash, body []byte) []byte {

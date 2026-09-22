@@ -820,3 +820,107 @@ func TestEstablishIntroBadMAC(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRendezvousJoin(t *testing.T) {
+	c := bootstrap(t)
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	svc, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+
+	authPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := make([]byte, 32)
+	blob, cst, err := crypto.IntroduceEncryptClient(enc.Public[:], authPub, sub, []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sst, err := crypto.IntroduceDecryptServer(enc.Private[:], authPub, sub, blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := make([]byte, 20)
+	if _, err := rand.Read(cookie); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.EstablishRendezvous(cookie); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- cli.WaitRendezvous2(cst) }()
+	if err := svc.Rendezvous1(cookie, sst.Handshake); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AttachHSHop(sst.Keys); err != nil {
+		t.Fatal(err)
+	}
+	gotc := make(chan []byte, 1)
+	go func() {
+		b, err := svc.WaitRendData()
+		if err != nil {
+			errc <- err
+			return
+		}
+		gotc <- b
+	}()
+	if err := cli.RendData([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case b := <-gotc:
+		if string(b) != "ping" {
+			t.Fatalf("got %q", b)
+		}
+	case err := <-errc:
+		t.Fatal(err)
+	}
+}
+
+func TestRendezvousWrongCookie(t *testing.T) {
+	c := bootstrap(t)
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	svc, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	cookie := bytes.Repeat([]byte{1}, 20)
+	if err := cli.EstablishRendezvous(cookie); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Rendezvous1(bytes.Repeat([]byte{2}, 20), make([]byte, 64)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.WaitRendData()
+	var d cell.DestroyError
+	if !errors.As(err, &d) {
+		t.Fatalf("got %v", err)
+	}
+}
