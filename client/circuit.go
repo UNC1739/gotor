@@ -497,7 +497,11 @@ func onionHandshake(r *directory.Relay) (htype uint16, hs []byte, finish func([]
 	if r.Supports("Relay", 4) && len(r.Ed25519ID) == 32 {
 		var id [32]byte
 		copy(id[:], r.Ed25519ID)
-		hs, st, err := crypto.NtorV3ClientHandshake(rand.Reader, id, r.NTorOnionKey, nil, []byte(crypto.NtorV3CircuitVerify))
+		var extra []byte
+		if r.Supports("FlowCtrl", 2) {
+			extra = crypto.EncodeCCRequest()
+		}
+		hs, st, err := crypto.NtorV3ClientHandshake(rand.Reader, id, r.NTorOnionKey, extra, []byte(crypto.NtorV3CircuitVerify))
 		if err != nil {
 			return 0, nil, nil, err
 		}

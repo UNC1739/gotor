@@ -39,6 +39,8 @@ const (
 	RelayIntroduceAck          = 40
 	RelayPaddingNegotiate      = 41
 	RelayPaddingNegotiated     = 42
+	RelayXoff                  = 43
+	RelayXon                   = 44
 
 	CircPadCommandStop      = 1
 	CircPadCommandStart     = 2
@@ -422,6 +424,30 @@ func ParsePaddingNegotiated(data []byte) (*PaddingNegotiated, error) {
 		MachineType: data[3],
 		MachineCtr:  binary.BigEndian.Uint32(data[4:8]),
 	}, nil
+}
+
+func EncodeXoff() []byte {
+	return []byte{0}
+}
+
+func ParseXoff(data []byte) error {
+	if len(data) < 1 || data[0] != 0 {
+		return fmt.Errorf("bad XOFF")
+	}
+	return nil
+}
+
+func EncodeXon(kbps uint32) []byte {
+	b := make([]byte, 5)
+	binary.BigEndian.PutUint32(b[1:], kbps)
+	return b
+}
+
+func ParseXon(data []byte) (uint32, error) {
+	if len(data) < 5 || data[0] != 0 {
+		return 0, fmt.Errorf("bad XON")
+	}
+	return binary.BigEndian.Uint32(data[1:5]), nil
 }
 
 const (

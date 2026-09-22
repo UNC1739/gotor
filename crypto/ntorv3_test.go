@@ -78,6 +78,49 @@ func TestNtorV3ExtraData(t *testing.T) {
 	assertSameKeys(t, skeys, ckeys)
 }
 
+func TestNtorV3CCExtra(t *testing.T) {
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id [32]byte
+	id[2] = 0xef
+	srv := &NtorV3Server{ID: id, Key: serverKey}
+	hs, st, err := NtorV3ClientHandshake(rand.Reader, id, serverKey.Public, EncodeCCRequest(), []byte(NtorV3CircuitVerify))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, skeys, gotCM, err := srv.Reply(rand.Reader, hs, nil, []byte(NtorV3CircuitVerify))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !HasCCRequest(gotCM) {
+		t.Fatal("missing CC request")
+	}
+	ckeys, sm, err := st.Finish(reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inc, ok := CCSendmeIncFrom(sm)
+	if !ok || inc != CCSendmeInc {
+		t.Fatalf("sendme_inc %d ok=%v", inc, ok)
+	}
+	assertSameKeys(t, skeys, ckeys)
+}
+
+func TestCCExtRoundTrip(t *testing.T) {
+	if !HasCCRequest(EncodeCCRequest()) {
+		t.Fatal("request")
+	}
+	inc, ok := CCSendmeIncFrom(EncodeCCResponse(31))
+	if !ok || inc != 31 {
+		t.Fatalf("%d %v", inc, ok)
+	}
+	if HasCCRequest(nil) || CCResponseIfRequested(nil) != nil {
+		t.Fatal("empty")
+	}
+}
+
 func TestNtorV3RejectsBadAuth(t *testing.T) {
 	serverKey, _ := GenerateKeyPair(rand.Reader)
 	var id [32]byte

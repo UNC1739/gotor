@@ -272,6 +272,19 @@ func TestPaddingNegotiateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestXonXoffRoundTrip(t *testing.T) {
+	if err := ParseXoff(EncodeXoff()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ParseXoff([]byte{1}); err == nil {
+		t.Fatal("bad version")
+	}
+	kbps, err := ParseXon(EncodeXon(1234))
+	if err != nil || kbps != 1234 {
+		t.Fatalf("%d %v", kbps, err)
+	}
+}
+
 func TestResolveRoundTrip(t *testing.T) {
 	if ParseResolve(EncodeResolve("example.com")) != "example.com" {
 		t.Fatal("hostname")
