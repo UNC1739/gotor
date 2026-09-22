@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/adam/gotor/client"
+	"github.com/adam/gotor/directory"
 	"github.com/adam/gotor/sim"
 	"github.com/adam/gotor/socks"
 )
@@ -181,6 +182,43 @@ func TestDirectoryBootstrap(t *testing.T) {
 	}
 }
 
+func TestBeginDirConsensus(t *testing.T) {
+	circ := circuit(t, 3)
+	st, err := circ.DialDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	body, err := directory.HTTPGet(st, "/tor/status-vote/current/consensus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relays, err := directory.ParseConsensus(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(relays) != 3 {
+		t.Fatalf("relays=%d body=%q", len(relays), body[:min(len(body), 200)])
+	}
+}
+
+func TestResolveLocalhost(t *testing.T) {
+	circ := circuit(t, 3)
+	ips, err := circ.Resolve("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ip := range ips {
+		if ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.ParseIP("::1")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ips=%v", ips)
+	}
+}
+
 func TestPathSelectionRoles(t *testing.T) {
 	c := bootstrap(t)
 	p3, err := c.PickPath(3)
@@ -197,6 +235,28 @@ func TestPathSelectionRoles(t *testing.T) {
 	if err != nil || len(p1) != 1 {
 		t.Fatalf("%v %v", p1, err)
 	}
+}
+
+func TestPaddingThenHTTP(t *testing.T) {
+	circ := circuit(t, 3)
+	if err := circ.SendPadding(); err != nil {
+		t.Fatal(err)
+	}
+	if err := circ.SendVpadding(32); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := circ.Drop(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
 }
 
 func TestOneHopHTTPEgress(t *testing.T) {

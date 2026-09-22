@@ -14,10 +14,10 @@ One PR per item. Stay on the local Docker sim unless the item says otherwise. Ch
 
 ## Protocol (sim-first)
 
-- [ ] **CREATE_FAST** — one-hop circuits without ntor (dir fetch / bootstrap)
-- [ ] **BEGIN_DIR** — directory HTTP over a circuit, not plaintext DirPort
-- [ ] **RELAY_RESOLVE / RELAY_RESOLVED** — SOCKS DNS via the exit
-- [ ] **PADDING / VPADDING / RELAY_DROP** — link + long-range padding cells
+- [x] **CREATE_FAST** — one-hop circuits without ntor (dir fetch / bootstrap)
+- [x] **BEGIN_DIR** — directory HTTP over a circuit, not plaintext DirPort
+- [x] **RELAY_RESOLVE / RELAY_RESOLVED** — SOCKS DNS via the exit
+- [x] **PADDING / VPADDING / RELAY_DROP** — link + long-range padding cells
 - [x] **SENDME v1** — authenticated circuit SENDMEs (rolling digest)
 - [ ] **ntor-v3** — extra-data handshake (Relay=4)
 - [ ] **CREATE2/EXTEND2 ntor-v3 path** — client prefers v3 when advertised
