@@ -16,7 +16,7 @@ func socksConnect(t *testing.T, atyp byte, addr []byte, port uint16) (gotHost st
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 	done := make(chan error, 1)
 	go func() {
-		done <- Handle(server, func(host string, port uint16) (io.ReadWriteCloser, error) {
+		done <- Handle(server, func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error) {
 			gotHost = host
 			gotPort = port
 			a, b := net.Pipe()
@@ -90,7 +90,7 @@ func TestHandleRejectsSOCKS4(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{4, 1})
 	select {
 	case err := <-errc:
@@ -107,7 +107,7 @@ func TestHandleUnsupportedCommand(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 2, 0, 1})
@@ -125,7 +125,7 @@ func TestHandleUDPAssociate(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 3, 0, 1})
@@ -163,7 +163,7 @@ func TestHandleTruncatedGreeting(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5})
 	_ = client.Close()
 	select {
@@ -181,7 +181,7 @@ func TestHandleBadATYP(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 2})
@@ -202,7 +202,7 @@ func TestHandleDialFailure(t *testing.T) {
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) {
 			return nil, io.ErrClosedPipe
 		})
 	}()
@@ -240,7 +240,7 @@ func TestServeAcceptsConnect(t *testing.T) {
 	}
 	defer ln.Close()
 	go func() {
-		_ = Serve(ln, func(string, uint16) (io.ReadWriteCloser, error) {
+		_ = Serve(ln, func(string, uint16, string, string) (io.ReadWriteCloser, error) {
 			a, b := net.Pipe()
 			_ = b.Close()
 			return a, nil
@@ -275,7 +275,7 @@ func TestHandleTruncatedMethods(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 2})
 	_ = client.Close()
 	select {
@@ -298,7 +298,7 @@ func TestHandleTruncatedAddr(t *testing.T) {
 	for _, req := range cases {
 		client, server := net.Pipe()
 		errc := make(chan error, 1)
-		go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+		go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 		_, _ = client.Write([]byte{5, 1, 0})
 		_, _ = io.ReadFull(client, make([]byte, 2))
 		_, _ = client.Write(req)
@@ -327,7 +327,7 @@ func TestHandleBadAtyp(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 2})
@@ -346,14 +346,40 @@ func TestHandleNoMethodsThenConnect(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
+	errc := make(chan error, 1)
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	if _, err := client.Write([]byte{5, 0}); err != nil {
+		t.Fatal(err)
+	}
+	rep := make([]byte, 2)
+	if _, err := io.ReadFull(client, rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep[0] != 5 || rep[1] != 0xff {
+		t.Fatalf("method %x", rep)
+	}
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("expected no acceptable method")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+
+
+func TestHandleUserPass(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
-	var gotHost string
-	var gotPort uint16
+	var gotUser, gotPass string
 	done := make(chan error, 1)
 	go func() {
-		done <- Handle(server, func(host string, port uint16) (io.ReadWriteCloser, error) {
-			gotHost = host
-			gotPort = port
+		done <- Handle(server, func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error) {
+			gotUser, gotPass = user, pass
 			a, b := net.Pipe()
 			go func() {
 				_, _ = io.Copy(io.Discard, a)
@@ -362,11 +388,29 @@ func TestHandleNoMethodsThenConnect(t *testing.T) {
 			return b, nil
 		})
 	}()
-	if _, err := client.Write([]byte{5, 0}); err != nil {
+	if _, err := client.Write([]byte{5, 1, 2}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := io.ReadFull(client, make([]byte, 2)); err != nil {
+	meth := make([]byte, 2)
+	if _, err := io.ReadFull(client, meth); err != nil {
 		t.Fatal(err)
+	}
+	if meth[0] != 5 || meth[1] != 2 {
+		t.Fatalf("method %v", meth)
+	}
+	auth := []byte{1, 5}
+	auth = append(auth, []byte("alice")...)
+	auth = append(auth, 3)
+	auth = append(auth, []byte("xyz")...)
+	if _, err := client.Write(auth); err != nil {
+		t.Fatal(err)
+	}
+	st := make([]byte, 2)
+	if _, err := io.ReadFull(client, st); err != nil {
+		t.Fatal(err)
+	}
+	if st[0] != 1 || st[1] != 0 {
+		t.Fatalf("auth status %v", st)
 	}
 	req := []byte{5, 1, 0, 1, 1, 2, 3, 4, 0, 80}
 	if _, err := client.Write(req); err != nil {
@@ -376,48 +420,20 @@ func TestHandleNoMethodsThenConnect(t *testing.T) {
 	if _, err := io.ReadFull(client, hdr); err != nil {
 		t.Fatal(err)
 	}
-	if hdr[1] != 0 || gotHost != "1.2.3.4" || gotPort != 80 {
-		t.Fatalf("status=%d host=%s port=%d", hdr[1], gotHost, gotPort)
-	}
-}
-
-func TestHandleUsernamePasswordMethodStillNoAuth(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
-	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
-	done := make(chan error, 1)
-	go func() {
-		done <- Handle(server, func(host string, port uint16) (io.ReadWriteCloser, error) {
-			a, b := net.Pipe()
-			go func() {
-				_, _ = io.Copy(io.Discard, a)
-				_ = a.Close()
-			}()
-			return b, nil
-		})
-	}()
-	if _, err := client.Write([]byte{5, 1, 2}); err != nil { // only USERNAME/PASSWORD
-		t.Fatal(err)
-	}
-	rep := make([]byte, 2)
-	if _, err := io.ReadFull(client, rep); err != nil {
-		t.Fatal(err)
-	}
-	if rep[0] != 5 || rep[1] != 0 {
-		t.Fatalf("method %x", rep)
-	}
-	if _, err := client.Write([]byte{5, 1, 0, 1, 1, 2, 3, 4, 0, 80}); err != nil {
-		t.Fatal(err)
-	}
-	hdr := make([]byte, 10)
-	if _, err := io.ReadFull(client, hdr); err != nil {
-		t.Fatal(err)
-	}
 	if hdr[1] != 0 {
 		t.Fatalf("status %d", hdr[1])
 	}
+	_ = client.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+	if gotUser != "alice" || gotPass != "xyz" {
+		t.Fatalf("user=%q pass=%q", gotUser, gotPass)
+	}
 }
+
 
 
 func TestHandleTruncatedDomainLen(t *testing.T) {
@@ -425,7 +441,7 @@ func TestHandleTruncatedDomainLen(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 3})
@@ -444,7 +460,7 @@ func TestHandleCloseAfterGreeting(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	if _, err := client.Write([]byte{5, 1, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +479,7 @@ func TestHandleCloseAfterMethodReply(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
 	if _, err := client.Write([]byte{5, 1, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +503,7 @@ func TestHandleCloseAfterConnect(t *testing.T) {
 	defer server.Close()
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Handle(server, func(string, uint16) (io.ReadWriteCloser, error) {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) {
 			a, b := net.Pipe()
 			go func() {
 				_, _ = io.Copy(io.Discard, a)
