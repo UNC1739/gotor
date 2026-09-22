@@ -237,6 +237,28 @@ func TestPathSelectionRoles(t *testing.T) {
 	}
 }
 
+func TestPaddingThenHTTP(t *testing.T) {
+	circ := circuit(t, 3)
+	if err := circ.SendPadding(); err != nil {
+		t.Fatal(err)
+	}
+	if err := circ.SendVpadding(32); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := circ.Drop(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
 func TestOneHopHTTPEgress(t *testing.T) {
 	circ := circuit(t, 1)
 	st, err := circ.Dial(httpHost, httpPort)

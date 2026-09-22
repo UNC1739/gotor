@@ -186,6 +186,14 @@ func Destroy(circID uint32, reason byte) *Cell {
 	return &Cell{CircID: circID, Command: CmdDestroy, Body: []byte{reason}}
 }
 
+func Padding() *Cell {
+	return &Cell{Command: CmdPadding}
+}
+
+func Vpadding(body []byte) *Cell {
+	return &Cell{Command: CmdVpadding, Body: body}
+}
+
 func CreateFast(circID uint32, x []byte) *Cell {
 	return &Cell{CircID: circID, Command: CmdCreateFast, Body: append([]byte(nil), x...)}
 }

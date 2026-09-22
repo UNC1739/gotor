@@ -77,6 +77,41 @@ func TestVarLenCerts(t *testing.T) {
 	}
 }
 
+func TestPaddingRoundTrip(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Padding().Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 4+1+BodyLen {
+		t.Fatalf("len=%d", buf.Len())
+	}
+	got, err := Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CircID != 0 || got.Command != CmdPadding || len(got.Body) != BodyLen {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestVpaddingRoundTrip(t *testing.T) {
+	body := bytes.Repeat([]byte{0xab}, 17)
+	var buf bytes.Buffer
+	if err := Vpadding(body).Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 4+1+2+17 {
+		t.Fatalf("len=%d", buf.Len())
+	}
+	got, err := Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Command != CmdVpadding || !bytes.Equal(got.Body, body) {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestCreateFastCells(t *testing.T) {
 	x := bytes.Repeat([]byte{1}, 20)
 	y := bytes.Repeat([]byte{2}, 20)
