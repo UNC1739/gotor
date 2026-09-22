@@ -11,7 +11,7 @@ import (
 
 func Fetch(dirAddr string) ([]*Relay, error) {
 	c := &http.Client{Timeout: 15 * time.Second}
-	cons, err := get(c, "http://"+dirAddr+"/tor/status-vote/current/consensus")
+	cons, err := fetchSignedConsensus(c, dirAddr, "/tor/status-vote/current/consensus")
 	if err != nil {
 		return nil, fmt.Errorf("consensus: %w", err)
 	}
@@ -31,7 +31,7 @@ func Fetch(dirAddr string) ([]*Relay, error) {
 
 func FetchMicro(dirAddr string) ([]*Relay, error) {
 	c := &http.Client{Timeout: 15 * time.Second}
-	cons, err := get(c, "http://"+dirAddr+"/tor/status-vote/current/consensus-microdesc")
+	cons, err := fetchSignedConsensus(c, dirAddr, "/tor/status-vote/current/consensus-microdesc")
 	if err != nil {
 		return nil, fmt.Errorf("micro consensus: %w", err)
 	}

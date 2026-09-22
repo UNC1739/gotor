@@ -21,6 +21,9 @@ func (n *Network) serveDir(w http.ResponseWriter, req *http.Request) {
 	case req.URL.Path == "/tor/server/all":
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte(n.descriptorsDoc()))
+	case req.URL.Path == "/tor/keys/authority":
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		_, _ = w.Write(directory.EncodeAuthorityKey(&n.authority.PublicKey))
 	case strings.HasPrefix(req.URL.Path, "/tor/micro/d/"):
 		n.serveMicro(w, strings.TrimPrefix(req.URL.Path, "/tor/micro/d/"))
 	default:
@@ -60,7 +63,7 @@ func (n *Network) consensusDoc() string {
 		}
 	}
 	fmt.Fprintf(&b, "directory-footer\n")
-	return b.String()
+	return n.signDoc(b.String())
 }
 
 func (n *Network) descriptorsDoc() string {
@@ -128,7 +131,7 @@ func (n *Network) microConsensusDoc() string {
 		}
 	}
 	fmt.Fprintf(&b, "directory-footer\n")
-	return b.String()
+	return n.signDoc(b.String())
 }
 
 func (n *Network) serveMicro(w http.ResponseWriter, spec string) {
@@ -151,6 +154,15 @@ func (n *Network) serveMicro(w http.ResponseWriter, spec string) {
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(b.String()))
+}
+
+func (n *Network) signDoc(body string) string {
+	out, err := directory.SignConsensus(body, n.authority)
+	if err != nil {
+		n.log.Error("consensus signature", "err", err)
+		return body
+	}
+	return out
 }
 
 func has(flags []string, f string) bool {
