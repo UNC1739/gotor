@@ -17,9 +17,10 @@ Pure-Go Tor *client* protocol stack plus a local simulated Tor network. Default 
 | Stream isolation (SOCKS user/pass) | yes |
 | RELAY_BEGIN IPv6/IPv4 flags | yes |
 | Onion services v3 (sim HSDir + intro + rend) | yes, SOCKS `*.onion`; garbage/v2 still fail |
+| Public v3 onion fetch | `GOTOR_DIR=public`: time-period HSDir ring, BEGIN_DIR `/tor/hs/3/`, intro+rend; `ServeOnion` publishes |
 | Congestion control extra-data + XON/XOFF | yes; SENDME v1 still used |
 | Conflux (prop 329) | yes; LINK/LINKED/SWITCH in sim |
-| C-Tor chutney / public network | optional `chutney` profile; `GOTOR_DIR=public` directory bootstrap |
+| C-Tor chutney / public network | optional `chutney` profile; `GOTOR_DIR=public` directory bootstrap + onion fetch |
 
 Egress means: the client builds a 1–3 hop circuit and the **exit relay** dials a TCP destination the sim can reach (localhost in unit tests, `172.28.0.0/16` in compose). That is real onion-encrypted relay traffic, not a stub.
 

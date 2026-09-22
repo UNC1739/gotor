@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Relay struct {
@@ -129,6 +130,47 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 		return nil, err
 	}
 	return relays, nil
+}
+
+type ConsensusHeader struct {
+	ValidAfter time.Time
+	SRV        []byte
+	PrevSRV    []byte
+}
+
+func ParseConsensusHeader(doc string) ConsensusHeader {
+	var hdr ConsensusHeader
+	sc := bufio.NewScanner(strings.NewReader(doc))
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "r":
+			return hdr
+		case "valid-after":
+			if len(fields) >= 3 {
+				t, err := time.Parse("2006-01-02 15:04:05", fields[1]+" "+fields[2])
+				if err == nil {
+					hdr.ValidAfter = t.UTC()
+				}
+			}
+		case "shared-rand-current-value":
+			if len(fields) >= 3 {
+				if raw, err := b64(fields[2], 32); err == nil {
+					hdr.SRV = raw
+				}
+			}
+		case "shared-rand-previous-value":
+			if len(fields) >= 3 {
+				if raw, err := b64(fields[2], 32); err == nil {
+					hdr.PrevSRV = raw
+				}
+			}
+		}
+	}
+	return hdr
 }
 
 func ParseBandwidthWeights(doc string) map[string]int {

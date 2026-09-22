@@ -9,24 +9,50 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	publicTimeout   = 180 * time.Second
-	microBatch      = 32
+	microBatch      = 96
 	maxGuardsMicros = 48
 	maxExitsMicros  = 48
 	maxOtherMicros  = 48
 )
 
+type Snapshot struct {
+	Relays     []*Relay
+	All        []*Relay
+	SRV        []byte
+	PrevSRV    []byte
+	ValidAfter time.Time
+	HTTPAddr   string
+}
+
 func FetchPublic() ([]*Relay, error) {
-	return FetchPublicFrom(V3Authorities, "")
+	snap, err := FetchPublicSnapshotFrom(V3Authorities, "")
+	if err != nil {
+		return nil, err
+	}
+	return snap.Relays, nil
+}
+
+func FetchPublicSnapshot() (*Snapshot, error) {
+	return FetchPublicSnapshotFrom(V3Authorities, "")
 }
 
 // FetchPublicFrom bootstraps from the given authorities. If dirAddr is set,
 // every HTTP fetch uses that host (tests). Otherwise each authority's DirAddr.
 func FetchPublicFrom(auths []Authority, dirAddr string) ([]*Relay, error) {
+	snap, err := FetchPublicSnapshotFrom(auths, dirAddr)
+	if err != nil {
+		return nil, err
+	}
+	return snap.Relays, nil
+}
+
+func FetchPublicSnapshotFrom(auths []Authority, dirAddr string) (*Snapshot, error) {
 	if len(auths) == 0 {
 		return nil, fmt.Errorf("no directory authorities")
 	}
@@ -42,9 +68,9 @@ func FetchPublicFrom(auths []Authority, dirAddr string) ([]*Relay, error) {
 			continue
 		}
 		seen[addr] = true
-		relays, err := fetchPublicOne(c, addr, auths)
+		snap, err := fetchPublicOne(c, addr, auths)
 		if err == nil {
-			return relays, nil
+			return snap, nil
 		}
 		last = fmt.Errorf("%s: %w", a.Nickname, err)
 	}
@@ -54,7 +80,7 @@ func FetchPublicFrom(auths []Authority, dirAddr string) ([]*Relay, error) {
 	return nil, last
 }
 
-func fetchPublicOne(c *http.Client, dirAddr string, auths []Authority) ([]*Relay, error) {
+func fetchPublicOne(c *http.Client, dirAddr string, auths []Authority) (*Snapshot, error) {
 	keyDoc, err := getPublic(c, dirAddr, "/tor/keys/all")
 	if err != nil {
 		return nil, fmt.Errorf("keys: %w", err)
@@ -99,11 +125,23 @@ func fetchPublicOne(c *http.Client, dirAddr string, auths []Authority) ([]*Relay
 	if err != nil {
 		return nil, err
 	}
+	hdr := ParseConsensusHeader(cons)
 	selected := selectForMicros(relays)
 	if err := fetchMicros(c, dirAddr, selected); err != nil {
 		return nil, err
 	}
-	return usableRelays(selected)
+	usable, err := usableRelays(selected)
+	if err != nil {
+		return nil, err
+	}
+	return &Snapshot{
+		Relays:     usable,
+		All:        relays,
+		SRV:        hdr.SRV,
+		PrevSRV:    hdr.PrevSRV,
+		ValidAfter: hdr.ValidAfter,
+		HTTPAddr:   dirAddr,
+	}, nil
 }
 
 func selectForMicros(relays []*Relay) []*Relay {
@@ -136,23 +174,80 @@ func selectForMicros(relays []*Relay) []*Relay {
 	return out
 }
 
+func FetchMicros(dirAddr string, relays []*Relay) error {
+	c := &http.Client{Timeout: publicTimeout}
+	return fetchMicros(c, dirAddr, relays)
+}
+
 func fetchMicros(c *http.Client, dirAddr string, relays []*Relay) error {
 	var hashes []string
+	var batch []*Relay
 	for _, r := range relays {
+		if len(r.MicroHash) != 32 {
+			continue
+		}
+		var zero [32]byte
+		if len(r.Ed25519ID) == 32 && r.NTorOnionKey != zero {
+			continue
+		}
 		hashes = append(hashes, strings.TrimRight(base64.StdEncoding.EncodeToString(r.MicroHash), "="))
+		batch = append(batch, r)
 	}
+	if len(hashes) == 0 {
+		return nil
+	}
+	type span struct{ i, j int }
+	var spans []span
 	for i := 0; i < len(hashes); i += microBatch {
 		j := i + microBatch
 		if j > len(hashes) {
 			j = len(hashes)
 		}
-		body, err := getPublic(c, dirAddr, "/tor/micro/d/"+strings.Join(hashes[i:j], "-"))
-		if err != nil {
-			return fmt.Errorf("microdescriptors: %w", err)
+		spans = append(spans, span{i, j})
+	}
+	workers := 8
+	if workers > len(spans) {
+		workers = len(spans)
+	}
+	jobs := make(chan span)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var last error
+	ok := 0
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for s := range jobs {
+				body, err := getPublic(c, dirAddr, "/tor/micro/d/"+strings.Join(hashes[s.i:s.j], "-"))
+				if err != nil {
+					mu.Lock()
+					last = err
+					mu.Unlock()
+					continue
+				}
+				if err := ParseMicrodescriptors(body, batch[s.i:s.j]); err != nil {
+					mu.Lock()
+					last = err
+					mu.Unlock()
+					continue
+				}
+				mu.Lock()
+				ok++
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, s := range spans {
+		jobs <- s
+	}
+	close(jobs)
+	wg.Wait()
+	if ok == 0 {
+		if last == nil {
+			last = fmt.Errorf("microdescriptors: empty")
 		}
-		if err := ParseMicrodescriptors(body, relays); err != nil {
-			return err
-		}
+		return fmt.Errorf("microdescriptors: %w", last)
 	}
 	return nil
 }
@@ -247,7 +342,7 @@ func parseDirectorySignatures(doc string) ([]dirSig, error) {
 		s.sig = raw
 		s.prefixes = []string{
 			common + "directory-signature ",
-			doc[j : abs+nl] + " ",
+			doc[j:abs+nl] + " ",
 			doc[j : abs+nl+1],
 			common + line + " ",
 			common + line + "\n",

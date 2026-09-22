@@ -3,20 +3,28 @@ package client
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/adam/gotor/directory"
 )
 
 type Client struct {
-	DirAddr string
-	Relays  []*directory.Relay
-	Guard   *directory.Relay
-	Hops    int
-	NoFast  bool
-	Log     *slog.Logger
+	DirAddr    string
+	DirHTTP    string
+	Relays     []*directory.Relay
+	All        []*directory.Relay
+	SRV        []byte
+	PrevSRV    []byte
+	ValidAfter time.Time
+	Guard      *directory.Relay
+	Hops       int
+	NoFast     bool
+	Log        *slog.Logger
 
-	mu    sync.Mutex
-	circs map[string]*Circuit
+	mu        sync.Mutex
+	circs     map[string]*Circuit
+	hsdirOnce sync.Once
+	hsdirErr  error
 }
 
 func Bootstrap(dirAddr string) (*Client, error) {
@@ -36,13 +44,21 @@ func BootstrapMicro(dirAddr string) (*Client, error) {
 }
 
 func BootstrapPublic() (*Client, error) {
-	relays, err := directory.FetchPublic()
+	snap, err := directory.FetchPublicSnapshot()
 	if err != nil {
 		return nil, err
 	}
-	return &Client{DirAddr: "public", Relays: relays, Log: slog.Default()}, nil
+	return &Client{
+		DirAddr:    "public",
+		DirHTTP:    snap.HTTPAddr,
+		Relays:     snap.Relays,
+		All:        snap.All,
+		SRV:        snap.SRV,
+		PrevSRV:    snap.PrevSRV,
+		ValidAfter: snap.ValidAfter,
+		Log:        slog.Default(),
+	}, nil
 }
-
 
 func (c *Client) CircuitFor(user, pass string) (*Circuit, error) {
 	key := user + "\x00" + pass

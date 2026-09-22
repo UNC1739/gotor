@@ -118,6 +118,22 @@ func HTTPGet(rw io.ReadWriter, path string) (string, error) {
 	return string(b), nil
 }
 
+func HTTPPost(rw io.ReadWriter, path, body string) error {
+	req := fmt.Sprintf("POST %s HTTP/1.0\r\nHost: directory\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", path, len(body), body)
+	if _, err := io.WriteString(rw, req); err != nil {
+		return err
+	}
+	br := bufio.NewReader(rw)
+	status, err := br.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(status, "200") {
+		return fmt.Errorf("http: %s", strings.TrimSpace(status))
+	}
+	return nil
+}
+
 func get(c *http.Client, url string) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

@@ -23,6 +23,8 @@ const (
 	CertTypeSigningVLinkAuth = 6
 	CertTypeRSAIDVIdentity   = 7
 	CertTypeHSDescSigning    = 8
+	CertTypeHSIntroAuth      = 9
+	CertTypeHSEncKey         = 0x0B
 	KeyTypeEd25519           = 1
 	KeyTypeSHA256X509        = 3
 	ExtSignedWithEd25519     = 4

@@ -19,6 +19,9 @@ func (c *Client) DialOnion(host string, port uint16) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	if c.DirAddr == "public" {
+		return c.dialOnionPublic(host, port, pub)
+	}
 	blind, err := crypto.BlindPublicSim(pub)
 	if err != nil {
 		return nil, err
@@ -88,7 +91,7 @@ func (circ *Circuit) Introduce1RP(authKey, encPub, subcred, cookie []byte, rp *d
 	if ip := rp.Address.To4(); ip != nil {
 		copy(ipv4[:], ip)
 	}
-	pt := cell.EncodeIntroPlaintext(cookie, rp.NTorOnionKey[:], ipv4, rp.ORPort)
+	pt := cell.EncodeIntroPlaintextIDs(cookie, rp.NTorOnionKey[:], ipv4, rp.ORPort, rp.Identity, rp.Ed25519ID)
 	enc, st, err := crypto.IntroduceEncryptClient(encPub, authKey, subcred, pt)
 	if err != nil {
 		return nil, err
@@ -145,6 +148,9 @@ func (circ *Circuit) Accept() (*Stream, error) {
 }
 
 func (c *Client) ServeOnion(body []byte) (addr string, err error) {
+	if c.DirAddr == "public" {
+		return c.serveOnionPublic(body)
+	}
 	id, err := crypto.GenerateHSIdentity(rand.Reader)
 	if err != nil {
 		return "", err
@@ -205,10 +211,9 @@ func (c *Client) onionLoop(introCirc *Circuit, encPriv, authKey, subcred, body [
 		if err != nil {
 			return
 		}
-		rp := c.relayByNTor(got.OnionKey)
-		if rp == nil {
-			rp = c.relayByOR(got.Address, got.ORPort)
-		}
+		var onion [32]byte
+		copy(onion[:], got.OnionKey)
+		rp := c.lookupOR(got.Address, got.ORPort, onion)
 		if rp == nil || got.Server == nil {
 			continue
 		}
@@ -242,12 +247,15 @@ func (c *Client) onionLoop(introCirc *Circuit, encPriv, authKey, subcred, body [
 }
 
 func (c *Client) relayByOR(ip net.IP, port uint16) *directory.Relay {
-	for _, r := range c.Relays {
+	var found *directory.Relay
+	c.eachRelay(func(r *directory.Relay) bool {
 		if r.ORPort == port && r.Address.Equal(ip) {
-			return r
+			found = r
+			return true
 		}
-	}
-	return nil
+		return false
+	})
+	return found
 }
 
 func (c *Client) relayByNTor(key []byte) *directory.Relay {
@@ -256,12 +264,59 @@ func (c *Client) relayByNTor(key []byte) *directory.Relay {
 	}
 	var k [32]byte
 	copy(k[:], key)
-	for _, r := range c.Relays {
+	var found *directory.Relay
+	c.eachRelay(func(r *directory.Relay) bool {
 		if r.NTorOnionKey == k {
-			return r
+			found = r
+			return true
+		}
+		return false
+	})
+	return found
+}
+
+func (c *Client) eachRelay(fn func(*directory.Relay) bool) {
+	seen := map[*directory.Relay]bool{}
+	for _, r := range c.Relays {
+		if r == nil || seen[r] {
+			continue
+		}
+		seen[r] = true
+		if fn(r) {
+			return
 		}
 	}
-	return nil
+	for _, r := range c.All {
+		if r == nil || seen[r] {
+			continue
+		}
+		seen[r] = true
+		if fn(r) {
+			return
+		}
+	}
+}
+
+func (c *Client) lookupOR(ip net.IP, port uint16, onion [32]byte) *directory.Relay {
+	if r := c.relayByOR(ip, port); r != nil {
+		if r.NTorOnionKey == [32]byte{} && onion != [32]byte{} {
+			r.NTorOnionKey = onion
+		}
+		return r
+	}
+	if r := c.relayByNTor(onion[:]); r != nil {
+		return r
+	}
+	if onion == [32]byte{} || ip == nil || port == 0 {
+		return nil
+	}
+	return &directory.Relay{
+		Nickname:     "hs-or",
+		Address:      ip,
+		ORPort:       port,
+		NTorOnionKey: onion,
+		Flags:        map[string]bool{"Running": true, "Valid": true},
+	}
 }
 
 func (c *Client) pickRend(avoid *directory.Relay) *directory.Relay {
@@ -274,4 +329,21 @@ func (c *Client) pickRend(avoid *directory.Relay) *directory.Relay {
 		return c.Relays[0]
 	}
 	return nil
+}
+
+func (c *Client) pickRendPublic(avoid *directory.Relay) *directory.Relay {
+	var cand []*directory.Relay
+	for _, r := range c.Relays {
+		if r == nil || r == avoid {
+			continue
+		}
+		if r.Address.To4() == nil || r.Identity == [20]byte{} || r.NTorOnionKey == [32]byte{} {
+			continue
+		}
+		if !r.Has("Running") && !r.Has("Fast") && !r.Has("Valid") {
+			continue
+		}
+		cand = append(cand, r)
+	}
+	return pickWeighted(cand, nil)
 }

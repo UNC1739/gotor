@@ -72,6 +72,25 @@ func TestParseBandwidth(t *testing.T) {
 		t.Fatalf("%v", w)
 	}
 }
+
+func TestParseConsensusHeader(t *testing.T) {
+	srv := make([]byte, 32)
+	srv[0] = 9
+	prev := make([]byte, 32)
+	prev[0] = 8
+	doc := "network-status-version 3 microdesc\n" +
+		"valid-after 2026-09-22 12:00:00\n" +
+		"shared-rand-previous-value 8 " + B64(prev) + "\n" +
+		"shared-rand-current-value 8 " + B64(srv) + "\n" +
+		"r gotor1 " + B64(make([]byte, 20)) + " 2020-01-01 00:00:00 10.0.0.2 9001 0\n"
+	hdr := ParseConsensusHeader(doc)
+	if hdr.ValidAfter.Year() != 2026 || hdr.ValidAfter.Month() != 9 || hdr.ValidAfter.Day() != 22 {
+		t.Fatalf("valid-after %v", hdr.ValidAfter)
+	}
+	if len(hdr.SRV) != 32 || hdr.SRV[0] != 9 || hdr.PrevSRV[0] != 8 {
+		t.Fatalf("%+v", hdr)
+	}
+}
 func TestParseProto(t *testing.T) {
 	ident := make([]byte, 20)
 	ident[0] = 1

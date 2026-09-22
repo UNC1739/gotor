@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 
 	"golang.org/x/crypto/curve25519"
@@ -38,10 +39,29 @@ func IntroHandshakeMAC(kh, msg []byte) []byte {
 	return m.Sum(nil)
 }
 
-func hmacSHA3(key string, msg []byte) []byte {
-	m := hmac.New(sha3.New256, []byte(key))
-	m.Write(msg)
-	return m.Sum(nil)
+// macSHA3 is C-Tor crypto_mac_sha3_256: SHA3-256(be64(len(key)) || key || msg).
+func macSHA3(key, msg []byte) []byte {
+	h := sha3.New256()
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], uint64(len(key)))
+	h.Write(n[:])
+	h.Write(key)
+	h.Write(msg)
+	return h.Sum(nil)
+}
+
+func introduceMACInput(authKey, clientPK, enc []byte) []byte {
+	buf := make([]byte, 0, 20+1+2+len(authKey)+1+len(clientPK)+len(enc))
+	buf = append(buf, make([]byte, 20)...)
+	buf = append(buf, 0x02)
+	var ln [2]byte
+	binary.BigEndian.PutUint16(ln[:], uint16(len(authKey)))
+	buf = append(buf, ln[:]...)
+	buf = append(buf, authKey...)
+	buf = append(buf, 0)
+	buf = append(buf, clientPK...)
+	buf = append(buf, enc...)
+	return buf
 }
 
 func IntroduceEncrypt(encPubB, authKey, subcred, plaintext []byte) ([]byte, error) {
@@ -66,14 +86,11 @@ func IntroduceEncryptClient(encPubB, authKey, subcred, plaintext []byte) ([]byte
 	iv := make([]byte, aes.BlockSize)
 	enc := make([]byte, len(plaintext))
 	cipher.NewCTR(block, iv).XORKeyStream(enc, plaintext)
-	macIn := append(append(append([]byte{}, authKey...), 0), x.Public[:]...)
-	macIn = append(macIn, enc...)
-	m := hmac.New(sha3.New256, macKey)
-	m.Write(macIn)
+	mac := macSHA3(macKey, introduceMACInput(authKey, x.Public[:], enc))
 	out := make([]byte, 0, 32+len(enc)+introMACLen)
 	out = append(out, x.Public[:]...)
 	out = append(out, enc...)
-	out = append(out, m.Sum(nil)...)
+	out = append(out, mac...)
 	st := &HSNtorClient{
 		x:     append([]byte(nil), x.Private[:]...),
 		X:     append([]byte(nil), x.Public[:]...),
@@ -106,11 +123,8 @@ func IntroduceDecryptServer(encPrivB, authKey, subcred, encrypted []byte) ([]byt
 		return nil, nil, err
 	}
 	encKey, macKey := hsIntroKeys(secret, authKey, clientPK, encPubB, subcred)
-	macIn := append(append(append([]byte{}, authKey...), 0), clientPK...)
-	macIn = append(macIn, enc...)
-	m := hmac.New(sha3.New256, macKey)
-	m.Write(macIn)
-	if !hmac.Equal(mac, m.Sum(nil)) {
+	macIn := introduceMACInput(authKey, clientPK, enc)
+	if !hmac.Equal(mac, macSHA3(macKey, macIn)) {
 		return nil, nil, fmt.Errorf("INTRODUCE mac")
 	}
 	block, err := aes.NewCipher(encKey)
@@ -159,10 +173,10 @@ func (st *HSNtorClient) Finish(handshake []byte) (*CircuitKeys, error) {
 
 func hsRendKeys(xy, xb, auth, B, X, Y []byte) (*CircuitKeys, []byte, error) {
 	secret := append(append(append(append(append(append(append([]byte{}, xy...), xb...), auth...), B...), X...), Y...), hsNtorProto...)
-	seed := hmacSHA3(tHsEnc, secret)
-	verify := hmacSHA3(tHsVerify, secret)
+	seed := macSHA3(secret, []byte(tHsEnc))
+	verify := macSHA3(secret, []byte(tHsVerify))
 	authIn := append(append(append(append(append(append(append([]byte{}, verify...), auth...), B...), Y...), X...), hsNtorProto...), []byte("Server")...)
-	authMAC := hmacSHA3(tHsMAC, authIn)
+	authMAC := macSHA3(authIn, []byte(tHsMAC))
 	h := sha3.NewShake256()
 	h.Write(seed)
 	h.Write([]byte(mHsExpand))
