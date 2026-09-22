@@ -2,6 +2,8 @@ package sim
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/tls"
 	"errors"
@@ -75,6 +77,7 @@ func (st *exitStream) writeLoop() {
 type circuit struct {
 	mu         sync.Mutex
 	hop        *gtcrypto.Hop
+	kh         []byte
 	prev       *proto.Channel
 	prevID     uint32
 	next       *proto.Channel
@@ -101,6 +104,7 @@ type Relay struct {
 	outbound map[circKey]*circuit
 	serving  map[*proto.Channel]bool
 	usedIDs  map[circKey]struct{}
+	intro    map[string]*circuit
 }
 
 func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
@@ -111,6 +115,7 @@ func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
 		outbound: map[circKey]*circuit{},
 		serving:  map[*proto.Channel]bool{},
 		usedIDs:  map[circKey]struct{}{},
+		intro:    map[string]*circuit{},
 	}
 }
 
@@ -179,7 +184,10 @@ func (r *Relay) handleCell(ch *proto.Channel, c *cell.Cell) {
 	case cell.CmdRelay, cell.CmdRelayEarly:
 		r.onRelay(ch, c)
 	case cell.CmdDestroy:
-		r.destroy(ch, c.CircID, false)
+		r.mu.Lock()
+		_, fromNext := r.outbound[circKey{ch, c.CircID}]
+		r.mu.Unlock()
+		r.destroy(ch, c.CircID, fromNext)
 	case cell.CmdPadding, cell.CmdVpadding:
 	default:
 		r.log.Debug("ignored cell", "cmd", c.Command)
@@ -232,6 +240,7 @@ func (r *Relay) installHop(ch *proto.Channel, circID uint32, keys *gtcrypto.Circ
 	}
 	ci := &circuit{
 		hop:      hop,
+		kh:       append([]byte(nil), keys.KH...),
 		prev:     ch,
 		prevID:   circID,
 		streams:  map[uint16]*exitStream{},
@@ -324,6 +333,10 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		go r.doBeginDir(ci, msg)
 	case cell.RelayResolve:
 		go r.doResolve(ci, msg)
+	case cell.RelayEstablishIntro:
+		r.doEstablishIntro(ci, msg)
+	case cell.RelayIntroduce1:
+		r.doIntroduce1(ci, msg)
 	case cell.RelayData:
 		r.mu.Lock()
 		st := ci.streams[msg.StreamID]
@@ -340,6 +353,45 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 	default:
 		r.log.Debug("unhandled relay cmd", "cmd", msg.Command, "relay", r.Keys.Nickname)
 	}
+}
+
+func (r *Relay) doEstablishIntro(ci *circuit, msg *cell.Relay) {
+	authKey, mac, signed, sig, err := cell.ParseEstablishIntro(msg.Data)
+	if err != nil {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	want := gtcrypto.IntroHandshakeMAC(ci.kh, cell.EstablishIntroMACPrefix(authKey))
+	if !hmac.Equal(mac, want) {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	msgToSign := append([]byte("Tor establish-intro cell v1"), signed...)
+	if !ed25519.Verify(authKey, msgToSign, sig) {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	r.mu.Lock()
+	r.intro[string(authKey)] = ci
+	r.mu.Unlock()
+	r.sendBack(ci, cell.RelayIntroEstablished, 0, []byte{0})
+}
+
+func (r *Relay) doIntroduce1(ci *circuit, msg *cell.Relay) {
+	authKey, _, err := cell.ParseIntroduce1(msg.Data)
+	if err != nil {
+		r.sendBack(ci, cell.RelayIntroduceAck, 0, cell.EncodeIntroduceAck(2))
+		return
+	}
+	r.mu.Lock()
+	svc := r.intro[string(authKey)]
+	r.mu.Unlock()
+	if svc == nil {
+		r.sendBack(ci, cell.RelayIntroduceAck, 0, cell.EncodeIntroduceAck(1))
+		return
+	}
+	r.sendBack(svc, cell.RelayIntroduce2, 0, msg.Data)
+	r.sendBack(ci, cell.RelayIntroduceAck, 0, cell.EncodeIntroduceAck(0))
 }
 
 func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {

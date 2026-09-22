@@ -15,6 +15,7 @@ type Hop struct {
 	bDigest hash.Hash
 	fStream cipher.Stream
 	bStream cipher.Stream
+	kh      []byte
 }
 
 func NewHop(k *CircuitKeys) (*Hop, error) {
@@ -36,8 +37,11 @@ func NewHop(k *CircuitKeys) (*Hop, error) {
 		bDigest: bd,
 		fStream: cipher.NewCTR(fb, iv),
 		bStream: cipher.NewCTR(bb, append([]byte(nil), iv...)),
+		kh:      append([]byte(nil), k.KH...),
 	}, nil
 }
+
+func (h *Hop) KH() []byte { return h.kh }
 
 func cloneHash(h hash.Hash) hash.Hash {
 	m, ok := h.(encoding.BinaryMarshaler)
