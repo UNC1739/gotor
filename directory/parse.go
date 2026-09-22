@@ -20,10 +20,23 @@ type Relay struct {
 	NTorOnionKey [32]byte
 	Ed25519ID    []byte
 	ExitAccept   bool
+	Proto        map[string][]int
 }
 
 func (r *Relay) Has(flag string) bool {
 	return r.Flags[flag]
+}
+
+func (r *Relay) Supports(proto string, ver int) bool {
+	if r == nil {
+		return false
+	}
+	for _, v := range r.Proto[proto] {
+		if v == ver {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseConsensus(doc string) ([]*Relay, error) {
@@ -57,6 +70,7 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 				ORPort:   uint16(orport),
 				DirPort:  uint16(dirport),
 				Flags:    map[string]bool{},
+				Proto:    map[string][]int{},
 			}
 			copy(cur.Identity[:], ident)
 			relays = append(relays, cur)
@@ -74,6 +88,11 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 			if len(fields) >= 2 && fields[1] == "accept" {
 				cur.ExitAccept = true
 			}
+		case "pr":
+			if cur == nil {
+				continue
+			}
+			cur.Proto = parseProtoItems(fields[1:])
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -133,6 +152,11 @@ func ParseDescriptors(doc string, relays []*Relay) error {
 			if cur != nil {
 				cur.ExitAccept = true
 			}
+		case "proto", "protocols":
+			if cur == nil {
+				continue
+			}
+			cur.Proto = parseProtoItems(fields[1:])
 		}
 	}
 	return sc.Err()
@@ -151,6 +175,40 @@ func b64(s string, want int) ([]byte, error) {
 		return nil, fmt.Errorf("got %d bytes, want %d", len(raw), want)
 	}
 	return raw, nil
+}
+
+func parseProtoItems(items []string) map[string][]int {
+	out := map[string][]int{}
+	for _, item := range items {
+		name, rest, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			continue
+		}
+		for _, rg := range strings.Split(rest, ",") {
+			if rg == "" {
+				continue
+			}
+			lo, hi, ranged := strings.Cut(rg, "-")
+			a, err := strconv.Atoi(lo)
+			if err != nil {
+				continue
+			}
+			b := a
+			if ranged {
+				b, err = strconv.Atoi(hi)
+				if err != nil {
+					continue
+				}
+			}
+			if b < a {
+				a, b = b, a
+			}
+			for v := a; v <= b; v++ {
+				out[name] = append(out[name], v)
+			}
+		}
+	}
+	return out
 }
 
 func B64(b []byte) string {

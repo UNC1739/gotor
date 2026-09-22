@@ -23,18 +23,18 @@ type Circuit struct {
 	relays []*directory.Relay
 	inc    <-chan *cell.Cell
 
-	mu       sync.Mutex
-	cryptoMu sync.Mutex
-	flowMu   sync.Mutex
-	flowCond *sync.Cond
-	circPack   int
-	circDel    int
-	packSince  int
-	expectDig  [][]byte
-	streams    map[uint16]*Stream
-	nextSID  uint16
-	waiters  map[uint16]chan *cell.Relay
-	ctrl     chan *cell.Relay
+	mu        sync.Mutex
+	cryptoMu  sync.Mutex
+	flowMu    sync.Mutex
+	flowCond  *sync.Cond
+	circPack  int
+	circDel   int
+	packSince int
+	expectDig [][]byte
+	streams   map[uint16]*Stream
+	nextSID   uint16
+	waiters   map[uint16]chan *cell.Relay
+	ctrl      chan *cell.Relay
 }
 
 func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
@@ -61,11 +61,11 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	inc := ch.Subscribe(circID)
 	ch.StartReadLoop()
 	circ := &Circuit{
-		ch:      ch,
-		id:      circID,
-		inc:     inc,
-		streams: map[uint16]*Stream{},
-		nextSID: 1,
+		ch:       ch,
+		id:       circID,
+		inc:      inc,
+		streams:  map[uint16]*Stream{},
+		nextSID:  1,
 		waiters:  map[uint16]chan *cell.Relay{},
 		ctrl:     make(chan *cell.Relay, 8),
 		relays:   relays,
@@ -117,11 +117,11 @@ func (circ *Circuit) createFirstHop(guard *directory.Relay, fast bool) error {
 		circ.hops = append(circ.hops, hop)
 		return nil
 	}
-	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
+	htype, hs, finish, err := onionHandshake(guard)
 	if err != nil {
 		return err
 	}
-	if err := circ.ch.WriteCell(cell.Create2(circ.id, crypto.HTypeNtor, hs)); err != nil {
+	if err := circ.ch.WriteCell(cell.Create2(circ.id, htype, hs)); err != nil {
 		return err
 	}
 	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
@@ -132,7 +132,7 @@ func (circ *Circuit) createFirstHop(guard *directory.Relay, fast bool) error {
 	if err != nil {
 		return err
 	}
-	keys, err := st.Finish(hdata)
+	keys, err := finish(hdata)
 	if err != nil {
 		return err
 	}
@@ -309,7 +309,7 @@ func (circ *Circuit) kill() {
 }
 
 func (circ *Circuit) extend(r *directory.Relay) error {
-	hs, st, err := crypto.NtorClientHandshake(rand.Reader, r.Identity, r.NTorOnionKey)
+	htype, hs, finish, err := onionHandshake(r)
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func (circ *Circuit) extend(r *directory.Relay) error {
 		return fmt.Errorf("relay %s has no IPv4", r.Nickname)
 	}
 	copy(ipv4[:], ip4)
-	payload := cell.EncodeExtend2(ipv4, r.ORPort, r.Identity, r.Ed25519ID, crypto.HTypeNtor, hs)
+	payload := cell.EncodeExtend2(ipv4, r.ORPort, r.Identity, r.Ed25519ID, htype, hs)
 	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelayEarly, cell.Relay{
 		Command: cell.RelayExtend2,
 		Data:    payload,
@@ -337,7 +337,7 @@ func (circ *Circuit) extend(r *directory.Relay) error {
 		if err != nil {
 			return err
 		}
-		keys, err := st.Finish(hdata)
+		keys, err := finish(hdata)
 		if err != nil {
 			return err
 		}
@@ -435,4 +435,24 @@ func (circ *Circuit) Resolve(host string) ([]net.IP, error) {
 func (circ *Circuit) Close() error {
 	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 0))
 	return circ.ch.Close()
+}
+
+func onionHandshake(r *directory.Relay) (htype uint16, hs []byte, finish func([]byte) (*crypto.CircuitKeys, error), err error) {
+	if r.Supports("Relay", 4) && len(r.Ed25519ID) == 32 {
+		var id [32]byte
+		copy(id[:], r.Ed25519ID)
+		hs, st, err := crypto.NtorV3ClientHandshake(rand.Reader, id, r.NTorOnionKey, nil, []byte(crypto.NtorV3CircuitVerify))
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		return crypto.HTypeNtorV3, hs, func(reply []byte) (*crypto.CircuitKeys, error) {
+			keys, _, err := st.Finish(reply)
+			return keys, err
+		}, nil
+	}
+	hs, st, err := crypto.NtorClientHandshake(rand.Reader, r.Identity, r.NTorOnionKey)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return crypto.HTypeNtor, hs, st.Finish, nil
 }

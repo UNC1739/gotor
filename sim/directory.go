@@ -46,6 +46,7 @@ func (n *Network) consensusDoc() string {
 			0,
 		)
 		fmt.Fprintf(&b, "s %s Running Stable Valid Fast\n", strings.Join(k.Flags, " "))
+		fmt.Fprintf(&b, "pr Relay=1-4\n")
 		if has(k.Flags, "Exit") {
 			fmt.Fprintf(&b, "p accept 1-65535\n")
 		} else {
@@ -64,6 +65,7 @@ func (n *Network) descriptorsDoc() string {
 		fmt.Fprintf(&b, "fingerprint %s\n", directory.FingerprintHex(k.Identity))
 		fmt.Fprintf(&b, "ntor-onion-key %s\n", directory.B64(k.NTor.Public[:]))
 		fmt.Fprintf(&b, "master-key-ed25519 %s\n", directory.B64(k.EdIDPub))
+		fmt.Fprintf(&b, "proto Relay=1-4\n")
 		if has(k.Flags, "Exit") {
 			fmt.Fprintf(&b, "accept *:*\n")
 		} else {
