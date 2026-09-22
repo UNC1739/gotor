@@ -3,6 +3,7 @@ package sim
 import (
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -26,6 +27,8 @@ func (n *Network) serveDir(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write(directory.EncodeAuthorityKey(&n.authority.PublicKey))
 	case strings.HasPrefix(req.URL.Path, "/tor/micro/d/"):
 		n.serveMicro(w, strings.TrimPrefix(req.URL.Path, "/tor/micro/d/"))
+	case strings.HasPrefix(req.URL.Path, "/tor/hs/3/"):
+		n.serveHS(w, req, strings.TrimPrefix(req.URL.Path, "/tor/hs/3/"))
 	default:
 		http.NotFound(w, req)
 	}
@@ -160,6 +163,37 @@ func (n *Network) serveMicro(w http.ResponseWriter, spec string) {
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(b.String()))
+}
+
+func (n *Network) serveHS(w http.ResponseWriter, req *http.Request, id string) {
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, req)
+		return
+	}
+	switch req.Method {
+	case http.MethodGet:
+		n.hsMu.Lock()
+		doc, ok := n.hs[id]
+		n.hsMu.Unlock()
+		if !ok {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(doc))
+	case http.MethodPost:
+		body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, 50<<10))
+		if err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		n.hsMu.Lock()
+		n.hs[id] = string(body)
+		n.hsMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	default:
+		http.Error(w, "method", http.StatusMethodNotAllowed)
+	}
 }
 
 func (n *Network) signDoc(body string) string {

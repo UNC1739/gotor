@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -97,6 +98,20 @@ func Subcredential(pub, blindedPub ed25519.PublicKey) []byte {
 	d.Write(cred)
 	d.Write(blindedPub)
 	return d.Sum(nil)
+}
+
+func HSDescID(blinded ed25519.PublicKey) string {
+	d := sha3.New256()
+	d.Write([]byte("store-at-idx"))
+	d.Write(blinded)
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], 1)
+	d.Write(n[:])
+	binary.BigEndian.PutUint64(n[:], HSPeriodLength)
+	d.Write(n[:])
+	binary.BigEndian.PutUint64(n[:], HSPeriodNum)
+	d.Write(n[:])
+	return hex.EncodeToString(d.Sum(nil))
 }
 
 func BlindPublic(pub ed25519.PublicKey, periodNum, periodLen uint64) (ed25519.PublicKey, error) {
