@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/ed25519"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/adam/gotor/cell"
@@ -12,6 +13,9 @@ import (
 type Introduced struct {
 	Cookie   []byte
 	OnionKey []byte
+	Address  net.IP
+	ORPort   uint16
+	Server   *crypto.HSNtorServer
 }
 
 func (circ *Circuit) EstablishIntro(auth ed25519.PrivateKey) error {
@@ -86,15 +90,21 @@ func (circ *Circuit) WaitIntroduce2(encPriv, authKey, subcred []byte) (*Introduc
 	if err != nil {
 		return nil, err
 	}
-	pt, err := crypto.IntroduceDecrypt(encPriv, authKey, subcred, encrypted)
+	pt, srv, err := crypto.IntroduceDecryptServer(encPriv, authKey, subcred, encrypted)
 	if err != nil {
 		return nil, err
 	}
-	cookie, onion, err := cell.ParseIntroPlaintext(pt)
+	cookie, onion, ip, port, err := cell.ParseIntroRendezvous(pt)
 	if err != nil {
 		return nil, err
 	}
-	return &Introduced{Cookie: cookie, OnionKey: onion}, nil
+	return &Introduced{
+		Cookie:   cookie,
+		OnionKey: onion,
+		Address:  net.IP(append([]byte(nil), ip[:]...)),
+		ORPort:   port,
+		Server:   srv,
+	}, nil
 }
 
 func (circ *Circuit) waitCtrl(cmd byte, d time.Duration) (*cell.Relay, error) {

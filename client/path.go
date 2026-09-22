@@ -63,6 +63,27 @@ func (c *Client) PickPath(n int) ([]*directory.Relay, error) {
 	return []*directory.Relay{g, m, e}, nil
 }
 
+func (c *Client) PickPathTo(end *directory.Relay) ([]*directory.Relay, error) {
+	if end == nil {
+		return nil, fmt.Errorf("no end relay")
+	}
+	g := c.Guard
+	if g == nil || g == end {
+		g = pickWeighted(c.Relays, []*directory.Relay{end})
+		if g != nil {
+			c.Guard = g
+		}
+	}
+	if g == nil {
+		return []*directory.Relay{end}, nil
+	}
+	m := pickWeighted(c.Relays, []*directory.Relay{g, end})
+	if m == nil {
+		return []*directory.Relay{g, end}, nil
+	}
+	return []*directory.Relay{g, m, end}, nil
+}
+
 func relayIn(pool []*directory.Relay, want *directory.Relay) bool {
 	for _, r := range pool {
 		if r == want {

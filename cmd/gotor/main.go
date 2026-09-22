@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/adam/gotor/client"
 	"github.com/adam/gotor/socks"
@@ -30,6 +31,9 @@ func main() {
 	}
 	log.Info("socks5 listening", "addr", ln.Addr().String())
 	err = socks.Serve(ln, func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error) {
+		if strings.HasSuffix(strings.ToLower(host), ".onion") {
+			return c.DialOnion(host, port)
+		}
 		circ, err := c.CircuitFor(user, pass)
 		if err != nil {
 			return nil, err
