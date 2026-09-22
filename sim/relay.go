@@ -300,6 +300,8 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		go r.doBegin(ci, msg)
 	case cell.RelayBeginDir:
 		go r.doBeginDir(ci, msg)
+	case cell.RelayResolve:
+		go r.doResolve(ci, msg)
 	case cell.RelayData:
 		r.mu.Lock()
 		st := ci.streams[msg.StreamID]
@@ -399,6 +401,34 @@ func (r *Relay) ensureServe(ch *proto.Channel) {
 	r.serving[ch] = true
 	r.mu.Unlock()
 	go r.serveChannel(ch)
+}
+
+func (r *Relay) doResolve(ci *circuit, msg *cell.Relay) {
+	host := cell.ParseResolve(msg.Data)
+	addrs, err := net.LookupIP(host)
+	if err != nil || len(addrs) == 0 {
+		r.sendBack(ci, cell.RelayResolved, msg.StreamID, cell.EncodeResolved([]cell.Resolved{{
+			Type:  cell.ResolvedErr,
+			Value: []byte("Error resolving hostname"),
+			TTL:   0,
+		}}))
+		return
+	}
+	var ans []cell.Resolved
+	for _, ip := range addrs {
+		if v4 := ip.To4(); v4 != nil {
+			ans = append([]cell.Resolved{{Type: cell.ResolvedIPv4, Value: append([]byte(nil), v4...), TTL: 60}}, ans...)
+		}
+	}
+	for _, ip := range addrs {
+		if v4 := ip.To4(); v4 == nil {
+			v6 := ip.To16()
+			if v6 != nil {
+				ans = append(ans, cell.Resolved{Type: cell.ResolvedIPv6, Value: append([]byte(nil), v6...), TTL: 60})
+			}
+		}
+	}
+	r.sendBack(ci, cell.RelayResolved, msg.StreamID, cell.EncodeResolved(ans))
 }
 
 func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {

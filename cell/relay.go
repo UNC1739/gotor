@@ -263,3 +263,64 @@ func EncodeExtended2(hdata []byte) []byte {
 func ParseExtended2(data []byte) ([]byte, error) {
 	return ParseCreated2(data)
 }
+
+const (
+	ResolvedHostname      = 0x00
+	ResolvedIPv4          = 0x04
+	ResolvedIPv6          = 0x06
+	ResolvedErrTransient  = 0xf0
+	ResolvedErr           = 0xf1
+)
+
+type Resolved struct {
+	Type  byte
+	Value []byte
+	TTL   uint32
+}
+
+func EncodeResolve(host string) []byte {
+	return append([]byte(host), 0)
+}
+
+func ParseResolve(data []byte) string {
+	for i, b := range data {
+		if b == 0 {
+			return string(data[:i])
+		}
+	}
+	return string(data)
+}
+
+func EncodeResolved(answers []Resolved) []byte {
+	var buf []byte
+	for _, a := range answers {
+		buf = append(buf, a.Type, byte(len(a.Value)))
+		buf = append(buf, a.Value...)
+		var ttl [4]byte
+		binary.BigEndian.PutUint32(ttl[:], a.TTL)
+		buf = append(buf, ttl[:]...)
+	}
+	return buf
+}
+
+func ParseResolved(data []byte) ([]Resolved, error) {
+	var out []Resolved
+	off := 0
+	for off < len(data) {
+		if off+2 > len(data) {
+			return nil, fmt.Errorf("short RESOLVED")
+		}
+		t := data[off]
+		n := int(data[off+1])
+		off += 2
+		if off+n+4 > len(data) {
+			return nil, fmt.Errorf("short RESOLVED value")
+		}
+		val := append([]byte(nil), data[off:off+n]...)
+		off += n
+		ttl := binary.BigEndian.Uint32(data[off : off+4])
+		off += 4
+		out = append(out, Resolved{Type: t, Value: val, TTL: ttl})
+	}
+	return out, nil
+}

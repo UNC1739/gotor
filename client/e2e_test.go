@@ -202,6 +202,23 @@ func TestBeginDirConsensus(t *testing.T) {
 	}
 }
 
+func TestResolveLocalhost(t *testing.T) {
+	circ := circuit(t, 3)
+	ips, err := circ.Resolve("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ip := range ips {
+		if ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.ParseIP("::1")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ips=%v", ips)
+	}
+}
+
 func TestPathSelectionRoles(t *testing.T) {
 	c := bootstrap(t)
 	p3, err := c.PickPath(3)

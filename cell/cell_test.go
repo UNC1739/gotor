@@ -164,6 +164,23 @@ func TestRelayEncode(t *testing.T) {
 	}
 }
 
+func TestResolveRoundTrip(t *testing.T) {
+	if ParseResolve(EncodeResolve("example.com")) != "example.com" {
+		t.Fatal("hostname")
+	}
+	ans := []Resolved{
+		{Type: ResolvedIPv4, Value: []byte{127, 0, 0, 1}, TTL: 60},
+		{Type: ResolvedIPv6, Value: make([]byte, 16), TTL: 30},
+	}
+	got, err := ParseResolved(EncodeResolved(ans))
+	if err != nil || len(got) != 2 || got[0].Type != ResolvedIPv4 || got[0].TTL != 60 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got[0].Value[0] != 127 {
+		t.Fatal(got[0].Value)
+	}
+}
+
 func TestZeroDigest(t *testing.T) {
 	body := EncodeRelay(Relay{Command: RelayData, StreamID: 1, Data: []byte("x")})
 	SetDigest(body, []byte{1, 2, 3, 4})
