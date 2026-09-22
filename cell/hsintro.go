@@ -165,6 +165,33 @@ func ParseIntroPlaintext(pt []byte) (cookie, onionKey []byte, err error) {
 	return cookie, onionKey, nil
 }
 
+func ParseIntroRendezvous(pt []byte) (cookie, onionKey []byte, ip [4]byte, port uint16, err error) {
+	cookie, onionKey, err = ParseIntroPlaintext(pt)
+	if err != nil {
+		return nil, nil, ip, 0, err
+	}
+	off := 20 + 1 + 1 + 2 + 32
+	if off+1+1+1+6 > len(pt) {
+		return cookie, onionKey, ip, 0, nil
+	}
+	nspec := int(pt[off])
+	off++
+	for i := 0; i < nspec && off+2 <= len(pt); i++ {
+		t := pt[off]
+		l := int(pt[off+1])
+		off += 2
+		if off+l > len(pt) {
+			break
+		}
+		if t == LSIPv4 && l == 6 {
+			copy(ip[:], pt[off:off+4])
+			port = binary.BigEndian.Uint16(pt[off+4 : off+6])
+		}
+		off += l
+	}
+	return cookie, onionKey, ip, port, nil
+}
+
 func EncodeIntroduceAck(status uint16) []byte {
 	var b [3]byte
 	binary.BigEndian.PutUint16(b[:2], status)

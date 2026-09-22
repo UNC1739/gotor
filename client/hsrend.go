@@ -44,6 +44,7 @@ func (circ *Circuit) WaitRendezvous2(st *crypto.HSNtorClient) error {
 		return err
 	}
 	circ.hops = append(circ.hops, hop)
+	circ.hs = true
 	return nil
 }
 
@@ -63,9 +64,9 @@ func (circ *Circuit) AttachHSHop(keys *crypto.CircuitKeys) error {
 		return err
 	}
 	circ.hops = append(circ.hops, hop)
+	circ.hs = true
 	return nil
 }
-
 func (circ *Circuit) RendData(b []byte) error {
 	return circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
 		Command: cell.RelayData,

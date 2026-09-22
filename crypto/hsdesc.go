@@ -41,6 +41,7 @@ type HSIntro struct {
 	ORPort   uint16
 	OnionKey [32]byte
 	EncKey   [32]byte
+	AuthKey  []byte
 }
 
 func BuildHSDesc(r io.Reader, id *HSIdentity, intro HSIntro, revision uint64) (string, error) {
@@ -115,6 +116,9 @@ func innerPlaintext(intro HSIntro) []byte {
 	fmt.Fprintf(&b, "introduction-point %s\n", base64.StdEncoding.EncodeToString(ls))
 	fmt.Fprintf(&b, "onion-key ntor %s\n", base64.StdEncoding.EncodeToString(intro.OnionKey[:]))
 	fmt.Fprintf(&b, "enc-key ntor %s\n", base64.StdEncoding.EncodeToString(intro.EncKey[:]))
+	if len(intro.AuthKey) == 32 {
+		fmt.Fprintf(&b, "auth-key ed25519 %s\n", base64.StdEncoding.EncodeToString(intro.AuthKey))
+	}
 	return []byte(b.String())
 }
 
@@ -197,6 +201,13 @@ func parseInner(pt []byte) (*HSIntro, error) {
 				raw, err := base64.StdEncoding.DecodeString(fields[2])
 				if err == nil && len(raw) == 32 {
 					copy(intro.EncKey[:], raw)
+				}
+			}
+		case "auth-key":
+			if len(fields) >= 3 && fields[1] == "ed25519" {
+				raw, err := base64.StdEncoding.DecodeString(fields[2])
+				if err == nil && len(raw) == 32 {
+					intro.AuthKey = raw
 				}
 			}
 		}

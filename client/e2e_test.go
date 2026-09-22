@@ -866,3 +866,59 @@ func TestRendezvousWrongCookie(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestOnionSOCKS(t *testing.T) {
+	c := bootstrap(t)
+	addr, err := c.ServeOnion([]byte("gotor-onion-ok"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		_ = socks.Serve(ln, func(host string, port uint16, _, _ string) (io.ReadWriteCloser, error) {
+			return c.DialOnion(host, port)
+		})
+	}()
+	conn, err := net.DialTimeout("tcp", ln.Addr().String(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	if _, err := conn.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	var meth [2]byte
+	if _, err := io.ReadFull(conn, meth[:]); err != nil {
+		t.Fatal(err)
+	}
+	req := []byte{5, 1, 0, 3, byte(len(addr))}
+	req = append(req, addr...)
+	req = append(req, 0, 80)
+	if _, err := conn.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	hdr := make([]byte, 10)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		t.Fatal(err)
+	}
+	if hdr[1] != 0 {
+		t.Fatalf("socks status %d", hdr[1])
+	}
+	fmt.Fprintf(conn, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", addr)
+	readUntil(t, conn, "gotor-onion-ok", 15*time.Second)
+}
+
+func TestDialOnionRejects(t *testing.T) {
+	c := bootstrap(t)
+	if _, err := c.DialOnion("foo.onion", 80); err == nil {
+		t.Fatal("garbage onion accepted")
+	}
+	if _, err := c.DialOnion("expyuzz4wqqyqhjn.onion", 80); err == nil {
+		t.Fatal("v2 onion accepted")
+	}
+}

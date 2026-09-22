@@ -51,7 +51,7 @@ func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
 }
 
 func (circ *Circuit) DialFlags(host string, port uint16, flags uint32) (*Stream, error) {
-	if strings.HasSuffix(strings.ToLower(host), ".onion") {
+	if strings.HasSuffix(strings.ToLower(host), ".onion") && !circ.hs {
 		return nil, ErrOnion
 	}
 	circ.mu.Lock()

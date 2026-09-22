@@ -22,6 +22,7 @@ type Circuit struct {
 	hops   []*crypto.Hop
 	relays []*directory.Relay
 	inc    <-chan *cell.Cell
+	hs     bool
 
 	mu        sync.Mutex
 	cryptoMu  sync.Mutex
@@ -35,6 +36,7 @@ type Circuit struct {
 	nextSID   uint16
 	waiters   map[uint16]chan *cell.Relay
 	ctrl      chan *cell.Relay
+	incoming  chan *cell.Relay
 	done      chan struct{}
 	dead      error
 }
@@ -72,6 +74,7 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 		nextSID:  1,
 		waiters:  map[uint16]chan *cell.Relay{},
 		ctrl:     make(chan *cell.Relay, 8),
+		incoming: make(chan *cell.Relay, 8),
 		done:     make(chan struct{}),
 		relays:   relays,
 		circPack: cell.CircWindowStart,
@@ -253,6 +256,12 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 	if w != nil {
 		select {
 		case w <- msg:
+		default:
+		}
+	}
+	if st == nil && w == nil && msg.Command == cell.RelayBegin {
+		select {
+		case circ.incoming <- msg:
 		default:
 		}
 	}
