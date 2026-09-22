@@ -381,6 +381,40 @@ func TestThreeHopHTTPEgress(t *testing.T) {
 	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
 }
 
+func TestCCThenHTTP(t *testing.T) {
+	c := bootstrap(t)
+	for _, r := range c.Relays {
+		if !r.Supports("FlowCtrl", 2) {
+			t.Fatalf("missing FlowCtrl=2 %+v", r.Proto)
+		}
+	}
+	circ := circuit(t, 3)
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
+func TestXoffThenXon(t *testing.T) {
+	circ := circuit(t, 3)
+	st, err := circ.Dial("xoff.test", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	time.Sleep(20 * time.Millisecond)
+	start := time.Now()
+	if _, err := st.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) < 50*time.Millisecond {
+		t.Fatalf("XOFF did not delay write: %s", time.Since(start))
+	}
+}
+
 func TestMixedNtorV3Path(t *testing.T) {
 	c := bootstrap(t)
 	path, err := c.PickPath(3)

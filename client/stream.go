@@ -23,6 +23,7 @@ type Stream struct {
 	buf    []byte
 	err    error
 	closed atomic.Bool
+	xoff   bool
 	pack   int
 	deliv  int
 }
@@ -34,6 +35,15 @@ func (s *Stream) deliver(msg *cell.Relay) {
 	case cell.RelayData:
 		s.buf = append(s.buf, msg.Data...)
 		s.cond.Broadcast()
+	case cell.RelayXoff:
+		if cell.ParseXoff(msg.Data) == nil {
+			s.xoff = true
+		}
+	case cell.RelayXon:
+		if _, err := cell.ParseXon(msg.Data); err == nil {
+			s.xoff = false
+			s.cond.Broadcast()
+		}
 	case cell.RelayEnd, cell.RelayConnected:
 		if msg.Command == cell.RelayEnd {
 			s.closed.Store(true)
@@ -161,6 +171,15 @@ func (s *Stream) Write(p []byte) (int, error) {
 	sent := 0
 
 	for len(p) > 0 {
+		s.mu.Lock()
+		for s.xoff && s.err == nil && !s.closed.Load() {
+			s.cond.Wait()
+		}
+		err := s.err
+		s.mu.Unlock()
+		if err != nil {
+			return sent, err
+		}
 		n := cell.MaxRelayData
 		if n > len(p) {
 			n = len(p)

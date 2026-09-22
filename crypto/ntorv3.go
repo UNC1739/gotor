@@ -250,6 +250,9 @@ func (s *NtorV3Server) replyWithY(y *KeyPair, handshake, extra, ver []byte) (rep
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if extra == nil {
+		extra = CCResponseIfRequested(clientExtra)
+	}
 	xy, err := exp(y.Private[:], X)
 	if err != nil {
 		return nil, nil, nil, err

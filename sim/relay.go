@@ -582,6 +582,13 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 		sendEnd(cell.EndReasonMisc)
 		return
 	}
+	if host == "xoff.test" {
+		r.sendBack(ci, cell.RelayConnected, msg.StreamID, make([]byte, 8))
+		r.sendBack(ci, cell.RelayXoff, msg.StreamID, cell.EncodeXoff())
+		time.Sleep(150 * time.Millisecond)
+		r.sendBack(ci, cell.RelayXon, msg.StreamID, cell.EncodeXon(0))
+		return
+	}
 	addrs, err := net.LookupIP(host)
 	if err != nil || len(addrs) == 0 {
 		sendEnd(cell.EndReasonResolveFailed)
