@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/adam/gotor/client"
@@ -23,7 +25,15 @@ func main() {
 		log.Error("bootstrap failed", "err", err)
 		os.Exit(1)
 	}
-	log.Info("directory fetched", "relays", len(c.Relays))
+	if h, err := strconv.Atoi(env("GOTOR_HOPS", "3")); err == nil && h > 0 {
+		c.Hops = h
+	}
+	c.NoFast = env("GOTOR_CREATE_FAST", "1") == "0"
+	nicks := make([]string, 0, len(c.Relays))
+	for _, r := range c.Relays {
+		nicks = append(nicks, fmt.Sprintf("%s %s:%d exit=%v", r.Nickname, r.Address, r.ORPort, r.Has("Exit")))
+	}
+	log.Info("directory fetched", "relays", len(c.Relays), "hops", c.Hops, "nofast", c.NoFast, "nodes", nicks)
 	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
 		log.Error("socks listen failed", "err", err)
@@ -36,9 +46,15 @@ func main() {
 		}
 		circ, err := c.CircuitFor(user, pass)
 		if err != nil {
+			log.Error("circuit", "err", err, "host", host)
 			return nil, err
 		}
-		return circ.Dial(host, port)
+		s, err := circ.Dial(host, port)
+		if err != nil {
+			log.Error("begin", "err", err, "host", host)
+			return nil, err
+		}
+		return s, nil
 	})
 	if err != nil {
 		log.Error("socks serve failed", "err", err)

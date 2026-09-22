@@ -11,6 +11,8 @@ type Client struct {
 	DirAddr string
 	Relays  []*directory.Relay
 	Guard   *directory.Relay
+	Hops    int
+	NoFast  bool
 	Log     *slog.Logger
 
 	mu    sync.Mutex
@@ -43,9 +45,20 @@ func (c *Client) CircuitFor(user, pass string) (*Circuit, error) {
 	if circ, ok := c.circs[key]; ok {
 		return circ, nil
 	}
-	path, err := c.PickPath(3)
+	hops := c.Hops
+	if hops < 1 {
+		hops = 3
+	}
+	path, err := c.PickPath(hops)
 	if err != nil {
 		return nil, err
+	}
+	if c.Log != nil {
+		nicks := make([]string, 0, len(path))
+		for _, r := range path {
+			nicks = append(nicks, r.Nickname)
+		}
+		c.Log.Info("building circuit", "hops", len(path), "path", nicks)
 	}
 	circ, err := c.BuildCircuit(path)
 	if err != nil {
@@ -53,4 +66,5 @@ func (c *Client) CircuitFor(user, pass string) (*Circuit, error) {
 	}
 	c.circs[key] = circ
 	return circ, nil
+
 }

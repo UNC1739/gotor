@@ -43,7 +43,9 @@ func ParseRSAIdentityCert(der []byte) (*rsa.PublicKey, error) {
 	if !ok {
 		return nil, fmt.Errorf("RSA identity cert is not RSA")
 	}
-	if err := c.CheckSignatureFrom(c); err != nil {
+	// C-Tor identity certs are self-signed but omit KeyUsageCertSign; Go's
+	// CheckSignatureFrom rejects them. Check the signature bytes instead.
+	if err := c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature); err != nil {
 		return nil, fmt.Errorf("RSA identity cert: %w", err)
 	}
 	return pub, nil

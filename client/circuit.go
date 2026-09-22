@@ -82,7 +82,7 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	}
 	circ.flowCond = sync.NewCond(&circ.flowMu)
 
-	if err := circ.createFirstHop(guard, len(relays) == 1); err != nil {
+	if err := circ.createFirstHop(guard, len(relays) == 1 && !c.NoFast); err != nil {
 		ch.Close()
 		return nil, err
 	}

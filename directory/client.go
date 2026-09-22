@@ -119,7 +119,12 @@ func HTTPGet(rw io.ReadWriter, path string) (string, error) {
 }
 
 func get(c *http.Client, url string) (string, error) {
-	resp, err := c.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}

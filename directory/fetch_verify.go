@@ -10,16 +10,24 @@ func fetchSignedConsensus(c *http.Client, dirAddr, path string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("authority key: %w", err)
 	}
-	pub, err := ParseAuthorityKey([]byte(keyPEM))
-	if err != nil {
-		return "", err
+	keys := ParseAuthorityKeys([]byte(keyPEM))
+	if len(keys) == 0 {
+		return "", fmt.Errorf("authority key: no PEM block")
 	}
 	cons, err := get(c, "http://"+dirAddr+path)
 	if err != nil {
 		return "", err
 	}
-	if err := VerifyConsensus(cons, pub); err != nil {
-		return "", err
+	var last error
+	for _, pub := range keys {
+		if err := VerifyConsensus(cons, pub); err == nil {
+			return cons, nil
+		} else {
+			last = err
+		}
 	}
-	return cons, nil
+	if last == nil {
+		last = fmt.Errorf("no authority key")
+	}
+	return "", last
 }
