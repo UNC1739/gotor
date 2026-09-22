@@ -408,6 +408,18 @@ func (circ *Circuit) Drop(hop int) error {
 	return circ.sendRelay(hop, cell.CmdRelay, cell.Relay{Command: cell.RelayDrop})
 }
 
+func (circ *Circuit) NegotiatePadding(hop int) (*cell.PaddingNegotiated, error) {
+	data := cell.EncodePaddingNegotiate(cell.CircPadCommandStart, cell.CircPadMachineCircSetup, 1)
+	if err := circ.sendRelay(hop, cell.CmdRelay, cell.Relay{Command: cell.RelayPaddingNegotiate, Data: data}); err != nil {
+		return nil, err
+	}
+	msg, err := circ.waitCtrl(cell.RelayPaddingNegotiated, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return cell.ParsePaddingNegotiated(msg.Data)
+}
+
 func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {
 	body := cell.EncodeRelay(r)
 	circ.cryptoMu.Lock()

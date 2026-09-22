@@ -365,6 +365,8 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 	case cell.RelaySendme:
 		r.creditSendme(ci, msg.StreamID, msg.Data)
 	case cell.RelayDrop:
+	case cell.RelayPaddingNegotiate:
+		r.doPaddingNegotiate(ci, msg)
 	default:
 		r.log.Debug("unhandled relay cmd", "cmd", msg.Command, "relay", r.Keys.Nickname)
 	}
@@ -390,6 +392,14 @@ func (r *Relay) doEstablishIntro(ci *circuit, msg *cell.Relay) {
 	r.intro[string(authKey)] = ci
 	r.mu.Unlock()
 	r.sendBack(ci, cell.RelayIntroEstablished, 0, []byte{0})
+}
+
+func (r *Relay) doPaddingNegotiate(ci *circuit, msg *cell.Relay) {
+	n, err := cell.ParsePaddingNegotiate(msg.Data)
+	if err != nil {
+		return
+	}
+	r.sendBack(ci, cell.RelayPaddingNegotiated, 0, cell.EncodePaddingNegotiated(n.Command, cell.CircPadResponseERR, n.MachineType, n.MachineCtr))
 }
 
 func (r *Relay) doIntroduce1(ci *circuit, msg *cell.Relay) {
