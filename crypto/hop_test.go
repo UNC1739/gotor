@@ -111,6 +111,34 @@ func TestSequentialRelayCells(t *testing.T) {
 	}
 }
 
+func TestSendmeV1DigestAgrees(t *testing.T) {
+	k := dummyKeys(3)
+	snd, _ := NewHop(k)
+	rcv, _ := NewHop(k)
+	begin := cell.EncodeRelay(cell.Relay{Command: cell.RelayBegin, StreamID: 1, Data: []byte("127.0.0.1:80")})
+	snd.SealForward(begin)
+	rcv.DecryptForward(begin)
+	if !rcv.RecognizeForward(begin) {
+		t.Fatal("BEGIN")
+	}
+	var want []byte
+	for i := 0; i < cell.CircWindowInc; i++ {
+		body := cell.EncodeRelay(cell.Relay{Command: cell.RelayData, StreamID: 1, Data: []byte{byte(i)}})
+		snd.SealForward(body)
+		if i == cell.CircWindowInc-1 {
+			want = append([]byte(nil), snd.ForwardDigest()...)
+		}
+		rcv.DecryptForward(body)
+		if !rcv.RecognizeForward(body) {
+			t.Fatalf("DATA %d", i)
+		}
+	}
+	got := rcv.ForwardDigest()
+	if !bytes.Equal(want, got) || len(want) != 20 {
+		t.Fatalf("digest mismatch want=%x got=%x", want, got)
+	}
+}
+
 func TestClientStopsAtOriginatingHop(t *testing.T) {
 	hops, exitHops := pairedHops(t, 3)
 	for dest := 0; dest < 3; dest++ {

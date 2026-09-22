@@ -97,6 +97,40 @@ func SetDigest(body []byte, d []byte) {
 	}
 }
 
+const SendmeV1 = 1
+
+func EncodeSendmeV1(digest []byte) []byte {
+	if len(digest) > 20 {
+		digest = digest[:20]
+	}
+	buf := make([]byte, 3+20)
+	buf[0] = SendmeV1
+	binary.BigEndian.PutUint16(buf[1:3], 20)
+	copy(buf[3:], digest)
+	return buf
+}
+
+func ParseSendme(data []byte) (ver byte, digest []byte, err error) {
+	if len(data) == 0 {
+		return 0, nil, nil
+	}
+	if len(data) < 3 {
+		return 0, nil, fmt.Errorf("short SENDME")
+	}
+	ver = data[0]
+	n := int(binary.BigEndian.Uint16(data[1:3]))
+	if len(data) < 3+n {
+		return 0, nil, fmt.Errorf("short SENDME data")
+	}
+	if ver == SendmeV1 {
+		if n < 20 {
+			return ver, nil, fmt.Errorf("short SENDME digest")
+		}
+		return ver, data[3 : 3+20], nil
+	}
+	return ver, nil, nil
+}
+
 func BeginPayload(host string, port uint16) []byte {
 	s := fmt.Sprintf("%s:%d", host, port)
 	p := make([]byte, len(s)+1+4)
