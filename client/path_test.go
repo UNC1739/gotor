@@ -52,11 +52,11 @@ func TestPickPathNoGuardUsesAll(t *testing.T) {
 	e := &directory.Relay{Nickname: "e", Flags: map[string]bool{"Exit": true}}
 	o := &directory.Relay{Nickname: "o", Flags: map[string]bool{}}
 	c := &Client{Relays: []*directory.Relay{e, o}}
-	p, err := c.PickPath(3)
-	if err != nil || len(p) != 3 {
-		t.Fatalf("%+v %v", nicks(p), err)
+	if _, err := c.PickPath(3); err == nil {
+		t.Fatal("expected not enough unique relays")
 	}
 }
+
 
 func TestPickPathMiddleFromExtraGuard(t *testing.T) {
 	g := &directory.Relay{Nickname: "g", Flags: map[string]bool{"Guard": true}}

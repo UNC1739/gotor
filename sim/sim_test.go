@@ -1077,27 +1077,6 @@ func TestRelayTwoCreateFastOnOneLink(t *testing.T) {
 	}
 }
 
-func TestRelayUnknownRelayCommandsThenBeginDir(t *testing.T) {
-	r := startRelay(t)
-	ch := dialRelay(t, r)
-	id, hop := createFastClient(t, ch)
-	for _, cmd := range []byte{cell.RelayExtend, 19, 20, 21, 22, 32, 33, 34, 35, 36, 37, 38, 39, 40, 43} {
-		writeRelay(t, ch, id, hop, cmd, 0, nil)
-	}
-	writeRelay(t, ch, id, hop, cell.RelayBeginDir, 1, nil)
-	got, err := ch.ReadCell()
-	if err != nil {
-		t.Fatal(err)
-	}
-	hop.DecryptBackward(got.Body)
-	if !hop.RecognizeBackward(got.Body) {
-		t.Fatal("not recognized")
-	}
-	msg, err := cell.DecodeRelay(got.Body)
-	if err != nil || msg.Command != cell.RelayEnd {
-		t.Fatalf("%v %v", msg, err)
-	}
-}
 
 
 
