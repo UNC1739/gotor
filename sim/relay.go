@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -461,12 +462,22 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 	sendEnd := func(reason byte) {
 		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{reason})
 	}
-	host, port, err := cell.ParseBegin(msg.Data)
+	host, port, flags, err := cell.ParseBegin(msg.Data)
 	if err != nil {
 		sendEnd(cell.EndReasonMisc)
 		return
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)), 10*time.Second)
+	addrs, err := net.LookupIP(host)
+	if err != nil || len(addrs) == 0 {
+		sendEnd(cell.EndReasonResolveFailed)
+		return
+	}
+	ip := cell.SelectBeginAddr(addrs, flags)
+	if ip == nil {
+		sendEnd(cell.EndReasonResolveFailed)
+		return
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), 10*time.Second)
 	if err != nil {
 		r.log.Debug("exit dial failed", "host", host, "port", port, "err", err)
 		sendEnd(cell.EndReasonConnectRefused)

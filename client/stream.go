@@ -47,6 +47,10 @@ func (s *Stream) deliver(msg *cell.Relay) {
 }
 
 func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
+	return circ.DialFlags(host, port, 0)
+}
+
+func (circ *Circuit) DialFlags(host string, port uint16, flags uint32) (*Stream, error) {
 	if strings.HasSuffix(strings.ToLower(host), ".onion") {
 		return nil, ErrOnion
 	}
@@ -69,7 +73,7 @@ func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
 	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
 		Command:  cell.RelayBegin,
 		StreamID: sid,
-		Data:     cell.BeginPayload(host, port),
+		Data:     cell.BeginPayloadFlags(host, port, flags),
 	}); err != nil {
 		return nil, err
 	}

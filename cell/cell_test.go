@@ -3,6 +3,7 @@ package cell
 import (
 	"bytes"
 	"io"
+	"net"
 	"testing"
 )
 
@@ -233,16 +234,46 @@ func TestRelayEncode(t *testing.T) {
 	if msg.Command != RelayBegin || msg.StreamID != 7 {
 		t.Fatalf("%+v", msg)
 	}
-	h, p, err := ParseBegin(BeginPayload("example.com", 80))
-	if err != nil || h != "example.com" || p != 80 {
-		t.Fatalf("%s %d %v", h, p, err)
+	h, p, flags, err := ParseBegin(BeginPayload("example.com", 80))
+	if err != nil || h != "example.com" || p != 80 || flags != 0 {
+		t.Fatalf("%s %d flags=%d %v", h, p, flags, err)
 	}
-	h, p, err = ParseBegin(BeginPayload("127.0.0.1", 8080))
-	if err != nil || h != "127.0.0.1" || p != 8080 {
-		t.Fatalf("%s %d %v", h, p, err)
+	h, p, flags, err = ParseBegin(BeginPayload("127.0.0.1", 8080))
+	if err != nil || h != "127.0.0.1" || p != 8080 || flags != 0 {
+		t.Fatalf("%s %d flags=%d %v", h, p, flags, err)
 	}
-	if _, _, err := ParseBegin([]byte("noport")); err == nil {
+	if _, _, _, err := ParseBegin([]byte("noport")); err == nil {
 		t.Fatal("expected bad begin")
+	}
+}
+
+func TestBeginFlags(t *testing.T) {
+	want := BeginIPv6OK | BeginIPv4NotOK | BeginIPv6Preferred
+	raw := BeginPayloadFlags("example.com", 443, want)
+	h, p, flags, err := ParseBegin(raw)
+	if err != nil || h != "example.com" || p != 443 || flags != want {
+		t.Fatalf("%s %d flags=%d err=%v", h, p, flags, err)
+	}
+	if len(BeginPayload("x", 1)) != len("x:1")+1 {
+		t.Fatal("zero flags should omit FLAGS")
+	}
+}
+
+func TestSelectBeginAddr(t *testing.T) {
+	v4 := net.ParseIP("1.2.3.4")
+	v6 := net.ParseIP("2001:db8::1")
+	both := []net.IP{v4, v6}
+	if got := SelectBeginAddr(both, 0); !got.Equal(v4) {
+		t.Fatalf("default %v", got)
+	}
+	if got := SelectBeginAddr(both, BeginIPv6OK|BeginIPv6Preferred); !got.Equal(v6) {
+		t.Fatalf("prefer v6 %v", got)
+	}
+	if got := SelectBeginAddr([]net.IP{v4}, BeginIPv4NotOK); got != nil {
+		t.Fatalf("v4 not ok %v", got)
+	}
+	if got := SelectBeginAddr([]net.IP{v6}, BeginIPv6OK); !got.Equal(v6) {
+		t.Fatalf("v6 only %v", got)
 	}
 }
 

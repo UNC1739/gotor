@@ -506,6 +506,15 @@ func TestConnectRefused(t *testing.T) {
 	}
 }
 
+func TestBeginIPv4NotOK(t *testing.T) {
+	circ := circuit(t, 3)
+	_, err := circ.DialFlags("127.0.0.1", httpPort, cell.BeginIPv4NotOK)
+	var end cell.EndError
+	if !errors.As(err, &end) || end.Reason != cell.EndReasonResolveFailed {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestOnionRejected(t *testing.T) {
 	circ := circuit(t, 3)
 	_, err := circ.Dial("abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwxyz234567.onion", 80)
