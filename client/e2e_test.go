@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -740,6 +741,82 @@ func TestHSDirPublishFetch(t *testing.T) {
 	}
 	_, err = directory.FetchHS(netw.DirAddr(), strings.Repeat("0", 64))
 	if !errors.Is(err, directory.ErrHSNotFound) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestEstablishIntroduce(t *testing.T) {
+	c := bootstrap(t)
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	cli, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+
+	authPub, authPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := crypto.GenerateHSIdentity(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blind, err := crypto.BlindPublicSim(id.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := crypto.Subcredential(id.Public, blind)
+	if err := svc.EstablishIntro(authPriv); err != nil {
+		t.Fatal(err)
+	}
+	cookie := make([]byte, 20)
+	onion := make([]byte, 32)
+	if _, err := rand.Read(cookie); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(onion); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	var got *client.Introduced
+	go func() {
+		g, err := svc.WaitIntroduce2(enc.Private[:], authPub, sub)
+		got = g
+		errc <- err
+	}()
+	if err := cli.Introduce1(authPub, enc.Public[:], sub, cookie, onion); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Cookie, cookie) || !bytes.Equal(got.OnionKey, onion) {
+		t.Fatalf("cookie/ntor mismatch")
+	}
+}
+
+func TestEstablishIntroBadMAC(t *testing.T) {
+	circ := circuit(t, 3)
+	_, authPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = circ.EstablishIntroCorruptMAC(authPriv)
+	var d cell.DestroyError
+	if !errors.As(err, &d) {
 		t.Fatalf("got %v", err)
 	}
 }
