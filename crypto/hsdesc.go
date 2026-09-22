@@ -45,12 +45,20 @@ type HSIntro struct {
 }
 
 func BuildHSDesc(r io.Reader, id *HSIdentity, intro HSIntro, revision uint64) (string, error) {
-	blind, err := BlindedFromSecret(id.Private, HSPeriodNum, HSPeriodLength)
+	return BuildHSDescAt(r, id, intro, revision, HSPeriodNum, HSPeriodLength)
+}
+
+func BuildHSDescAt(r io.Reader, id *HSIdentity, intro HSIntro, revision, periodNum, periodLen uint64) (string, error) {
+	blind, err := BlindedFromSecret(id.Private, periodNum, periodLen)
+	if err != nil {
+		return "", err
+	}
+	descPub, descPriv, err := ed25519.GenerateKey(r)
 	if err != nil {
 		return "", err
 	}
 	sub := Subcredential(id.Public, blind.Public)
-	inner := innerPlaintext(intro)
+	inner := innerPlaintext(intro, descPriv)
 	innerCT, err := hsEncrypt(r, append([]byte{}, blind.Public...), sub, revision, hsEncStr, inner)
 	if err != nil {
 		return "", err
@@ -58,10 +66,6 @@ func BuildHSDesc(r io.Reader, id *HSIdentity, intro HSIntro, revision uint64) (s
 	first := firstLayerPlaintext(r, innerCT)
 	first = pad10k(first)
 	super, err := hsEncrypt(r, append([]byte{}, blind.Public...), sub, revision, hsSuperStr, first)
-	if err != nil {
-		return "", err
-	}
-	descPub, descPriv, err := ed25519.GenerateKey(r)
 	if err != nil {
 		return "", err
 	}
@@ -85,11 +89,27 @@ func BuildHSDesc(r io.Reader, id *HSIdentity, intro HSIntro, revision uint64) (s
 }
 
 func ParseHSDesc(doc string, idPub ed25519.PublicKey) (*HSIntro, error) {
+	all, err := ParseHSDescIntrosAt(doc, idPub, HSPeriodNum, HSPeriodLength)
+	if err != nil {
+		return nil, err
+	}
+	return all[0], nil
+}
+
+func ParseHSDescAt(doc string, idPub ed25519.PublicKey, periodNum, periodLen uint64) (*HSIntro, error) {
+	all, err := ParseHSDescIntrosAt(doc, idPub, periodNum, periodLen)
+	if err != nil {
+		return nil, err
+	}
+	return all[0], nil
+}
+
+func ParseHSDescIntrosAt(doc string, idPub ed25519.PublicKey, periodNum, periodLen uint64) ([]*HSIntro, error) {
 	rev, super, err := parseOuter(doc)
 	if err != nil {
 		return nil, err
 	}
-	blind, err := BlindPublicSim(idPub)
+	blind, err := BlindPublic(idPub, periodNum, periodLen)
 	if err != nil {
 		return nil, err
 	}
@@ -106,10 +126,10 @@ func ParseHSDesc(doc string, idPub ed25519.PublicKey) (*HSIntro, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseInner(inner)
+	return parseInners(inner)
 }
 
-func innerPlaintext(intro HSIntro) []byte {
+func innerPlaintext(intro HSIntro, descPriv ed25519.PrivateKey) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "create2-formats 2\n")
 	ls := encodeIntroLink(intro)
@@ -117,7 +137,11 @@ func innerPlaintext(intro HSIntro) []byte {
 	fmt.Fprintf(&b, "onion-key ntor %s\n", base64.StdEncoding.EncodeToString(intro.OnionKey[:]))
 	fmt.Fprintf(&b, "enc-key ntor %s\n", base64.StdEncoding.EncodeToString(intro.EncKey[:]))
 	if len(intro.AuthKey) == 32 {
-		fmt.Fprintf(&b, "auth-key ed25519 %s\n", base64.StdEncoding.EncodeToString(intro.AuthKey))
+		var certified [32]byte
+		copy(certified[:], intro.AuthKey)
+		cert := certs.EncodeEd25519Cert(certs.CertTypeHSIntroAuth, certs.KeyTypeEd25519, certified, descPriv, descPriv.Public().(ed25519.PublicKey), 54)
+		fmt.Fprintf(&b, "auth-key\n")
+		b.WriteString(pemBlock("ED25519 CERT", cert))
 	}
 	return []byte(b.String())
 }
@@ -160,23 +184,46 @@ func encodeIntroLink(intro HSIntro) []byte {
 }
 
 func parseInner(pt []byte) (*HSIntro, error) {
+	all, err := parseInners(pt)
+	if err != nil {
+		return nil, err
+	}
+	return all[0], nil
+}
+
+func introComplete(in *HSIntro) bool {
+	return in != nil && in.ORPort != 0 && in.Address != nil && in.OnionKey != [32]byte{} && in.EncKey != [32]byte{} && len(in.AuthKey) == 32
+}
+
+func parseInners(pt []byte) ([]*HSIntro, error) {
+	lines := strings.Split(string(bytes.TrimRight(pt, "\x00")), "\n")
+	var all []*HSIntro
 	intro := &HSIntro{}
-	for _, line := range strings.Split(string(bytes.TrimRight(pt, "\x00")), "\n") {
-		fields := strings.Fields(line)
+	flush := func() {
+		if introComplete(intro) {
+			all = append(all, intro)
+		} else if intro.ORPort != 0 && intro.Address != nil && intro.OnionKey != [32]byte{} && intro.EncKey != [32]byte{} {
+			all = append(all, intro)
+		}
+		intro = &HSIntro{}
+	}
+	for i := 0; i < len(lines); i++ {
+		fields := strings.Fields(lines[i])
 		if len(fields) == 0 {
 			continue
 		}
 		switch fields[0] {
 		case "introduction-point":
+			flush()
 			if len(fields) < 2 {
 				continue
 			}
-			raw, err := base64.StdEncoding.DecodeString(fields[1])
+			raw, err := decodeB64(fields[1])
 			if err != nil || len(raw) < 9 || raw[0] < 1 {
 				continue
 			}
 			off := 1
-			for i := 0; i < int(raw[0]) && off+2 <= len(raw); i++ {
+			for n := 0; n < int(raw[0]) && off+2 <= len(raw); n++ {
 				t := raw[off]
 				l := int(raw[off+1])
 				off += 2
@@ -191,31 +238,51 @@ func parseInner(pt []byte) (*HSIntro, error) {
 			}
 		case "onion-key":
 			if len(fields) >= 3 && fields[1] == "ntor" {
-				raw, err := base64.StdEncoding.DecodeString(fields[2])
-				if err == nil && len(raw) == 32 {
+				if raw, err := decodeB64(fields[2]); err == nil && len(raw) == 32 {
 					copy(intro.OnionKey[:], raw)
 				}
 			}
 		case "enc-key":
 			if len(fields) >= 3 && fields[1] == "ntor" {
-				raw, err := base64.StdEncoding.DecodeString(fields[2])
-				if err == nil && len(raw) == 32 {
+				if raw, err := decodeB64(fields[2]); err == nil && len(raw) == 32 {
 					copy(intro.EncKey[:], raw)
 				}
 			}
 		case "auth-key":
 			if len(fields) >= 3 && fields[1] == "ed25519" {
-				raw, err := base64.StdEncoding.DecodeString(fields[2])
-				if err == nil && len(raw) == 32 {
+				if raw, err := decodeB64(fields[2]); err == nil && len(raw) == 32 {
 					intro.AuthKey = raw
+				}
+				continue
+			}
+			rest := strings.Join(lines[i+1:], "\n")
+			block, rest2 := pem.Decode([]byte(rest))
+			if block != nil && block.Type == "ED25519 CERT" {
+				if c, err := certs.ParseEd25519Cert(block.Bytes); err == nil {
+					k := make([]byte, 32)
+					copy(k, c.CertifiedKey[:])
+					intro.AuthKey = k
+				}
+				consumed := len(rest) - len(rest2)
+				if consumed > 0 {
+					i += strings.Count(rest[:consumed], "\n")
 				}
 			}
 		}
 	}
-	if intro.ORPort == 0 || intro.Address == nil {
+	flush()
+	if len(all) == 0 {
 		return nil, fmt.Errorf("hsdesc: no intro point")
 	}
-	return intro, nil
+	return all, nil
+}
+
+func decodeB64(s string) ([]byte, error) {
+	raw, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return base64.RawStdEncoding.DecodeString(s)
+	}
+	return raw, nil
 }
 
 func parseOuter(doc string) (revision uint64, super []byte, err error) {

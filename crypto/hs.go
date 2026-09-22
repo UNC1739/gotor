@@ -4,22 +4,28 @@ import (
 	"crypto/ed25519"
 	"crypto/sha512"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"filippo.io/edwards25519"
 	"golang.org/x/crypto/sha3"
 )
 
 const (
-	HSVersion      = byte(3)
-	HSPeriodLength = uint64(1440)
-	HSPeriodNum    = uint64(1)
-	HSPubLen       = 32
-	onionChecksum  = ".onion checksum"
+	HSVersion         = byte(3)
+	HSPeriodLength    = uint64(1440)
+	HSPeriodNum       = uint64(1)
+	HSPeriodOffsetMin = uint64(12 * 60)
+	HSReplicas        = 2
+	HSSpreadFetch     = 3
+	HSSpreadStore     = 4
+	HSPubLen          = 32
+	onionChecksum     = ".onion checksum"
 )
 
 // Ed25519 basepoint as a decimal string, matching C-Tor str_ed25519_basepoint.
@@ -101,17 +107,57 @@ func Subcredential(pub, blindedPub ed25519.PublicKey) []byte {
 }
 
 func HSDescID(blinded ed25519.PublicKey) string {
+	return hex.EncodeToString(HSIndex(blinded, 1, HSPeriodLength, HSPeriodNum))
+}
+
+func HSIndex(blinded ed25519.PublicKey, replica, periodLen, periodNum uint64) []byte {
 	d := sha3.New256()
 	d.Write([]byte("store-at-idx"))
 	d.Write(blinded)
 	var n [8]byte
-	binary.BigEndian.PutUint64(n[:], 1)
+	binary.BigEndian.PutUint64(n[:], replica)
 	d.Write(n[:])
-	binary.BigEndian.PutUint64(n[:], HSPeriodLength)
+	binary.BigEndian.PutUint64(n[:], periodLen)
 	d.Write(n[:])
-	binary.BigEndian.PutUint64(n[:], HSPeriodNum)
+	binary.BigEndian.PutUint64(n[:], periodNum)
 	d.Write(n[:])
-	return hex.EncodeToString(d.Sum(nil))
+	return d.Sum(nil)
+}
+
+func NodeIndex(id ed25519.PublicKey, srv []byte, periodLen, periodNum uint64) []byte {
+	d := sha3.New256()
+	d.Write([]byte("node-idx"))
+	d.Write(id)
+	d.Write(srv)
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], periodNum)
+	d.Write(n[:])
+	binary.BigEndian.PutUint64(n[:], periodLen)
+	d.Write(n[:])
+	return d.Sum(nil)
+}
+
+func DisasterSRV(periodLen, periodNum uint64) []byte {
+	d := sha3.New256()
+	d.Write([]byte("shared-random-disaster"))
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], periodLen)
+	d.Write(n[:])
+	binary.BigEndian.PutUint64(n[:], periodNum)
+	d.Write(n[:])
+	return d.Sum(nil)
+}
+
+func TimePeriodNum(now time.Time) uint64 {
+	minutes := uint64(now.Unix() / 60)
+	if minutes < HSPeriodOffsetMin {
+		return 0
+	}
+	return (minutes - HSPeriodOffsetMin) / HSPeriodLength
+}
+
+func BlindedURLID(blinded ed25519.PublicKey) string {
+	return strings.TrimRight(base64.StdEncoding.EncodeToString(blinded), "=")
 }
 
 func BlindPublic(pub ed25519.PublicKey, periodNum, periodLen uint64) (ed25519.PublicKey, error) {

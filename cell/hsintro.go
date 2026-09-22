@@ -112,7 +112,21 @@ func ParseIntroduce1(data []byte) (authKey, encrypted []byte, err error) {
 }
 
 func EncodeIntroPlaintext(cookie, onionKey []byte, ipv4 [4]byte, port uint16) []byte {
-	buf := make([]byte, 20+1+1+2+32+1+1+1+6)
+	return EncodeIntroPlaintextIDs(cookie, onionKey, ipv4, port, [20]byte{}, nil)
+}
+
+func EncodeIntroPlaintextIDs(cookie, onionKey []byte, ipv4 [4]byte, port uint16, rsaID [20]byte, edID []byte) []byte {
+	nspec := 1
+	extra := 0
+	if rsaID != [20]byte{} {
+		nspec++
+		extra += 2 + 20
+	}
+	if len(edID) == 32 {
+		nspec++
+		extra += 2 + 32
+	}
+	buf := make([]byte, 20+1+1+2+32+1+1+1+6+extra)
 	copy(buf, cookie)
 	off := 20
 	buf[off] = 0
@@ -123,7 +137,7 @@ func EncodeIntroPlaintext(cookie, onionKey []byte, ipv4 [4]byte, port uint16) []
 	off += 2
 	copy(buf[off:], onionKey)
 	off += 32
-	buf[off] = 1
+	buf[off] = byte(nspec)
 	off++
 	buf[off] = LSIPv4
 	off++
@@ -132,6 +146,22 @@ func EncodeIntroPlaintext(cookie, onionKey []byte, ipv4 [4]byte, port uint16) []
 	copy(buf[off:], ipv4[:])
 	off += 4
 	binary.BigEndian.PutUint16(buf[off:], port)
+	off += 2
+	if rsaID != [20]byte{} {
+		buf[off] = LSLegacyID
+		off++
+		buf[off] = 20
+		off++
+		copy(buf[off:], rsaID[:])
+		off += 20
+	}
+	if len(edID) == 32 {
+		buf[off] = LSEd25519
+		off++
+		buf[off] = 32
+		off++
+		copy(buf[off:], edID)
+	}
 	return buf
 }
 

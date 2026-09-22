@@ -31,7 +31,11 @@ func (circ *Circuit) Rendezvous1(cookie, handshake []byte) error {
 }
 
 func (circ *Circuit) WaitRendezvous2(st *crypto.HSNtorClient) error {
-	msg, err := circ.waitCtrl(cell.RelayRendezvous2, 10*time.Second)
+	return circ.WaitRendezvous2For(st, 10*time.Second)
+}
+
+func (circ *Circuit) WaitRendezvous2For(st *crypto.HSNtorClient, d time.Duration) error {
+	msg, err := circ.waitCtrl(cell.RelayRendezvous2, d)
 	if err != nil {
 		return err
 	}

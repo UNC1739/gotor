@@ -14,10 +14,14 @@ func TestHSDescRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var onion, enc [32]byte
+	auth := make([]byte, 32)
 	if _, err := rand.Read(onion[:]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := rand.Read(enc[:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(auth); err != nil {
 		t.Fatal(err)
 	}
 	want := HSIntro{
@@ -25,6 +29,7 @@ func TestHSDescRoundTrip(t *testing.T) {
 		ORPort:   9001,
 		OnionKey: onion,
 		EncKey:   enc,
+		AuthKey:  auth,
 	}
 	doc, err := BuildHSDesc(rand.Reader, id, want, 7)
 	if err != nil {
@@ -39,6 +44,9 @@ func TestHSDescRoundTrip(t *testing.T) {
 	}
 	if got.OnionKey != want.OnionKey || got.EncKey != want.EncKey {
 		t.Fatal("ntor keys")
+	}
+	if len(got.AuthKey) != 32 || string(got.AuthKey) != string(want.AuthKey) {
+		t.Fatal("auth key")
 	}
 }
 

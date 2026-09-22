@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOnionAddressRoundTrip(t *testing.T) {
@@ -151,4 +152,49 @@ func TestHSDescID(t *testing.T) {
 	if HSDescID(other) == a {
 		t.Fatal("period did not change descriptor id")
 	}
+}
+
+func TestTimePeriodNum(t *testing.T) {
+	if TimePeriodNum(time.Unix(0, 0).UTC()) != 0 {
+		t.Fatal("epoch")
+	}
+	// offset 720 minutes; length 1440. unix=(720+1440)*60 is period 1.
+	if got := TimePeriodNum(time.Unix((720+1440)*60, 0).UTC()); got != 1 {
+		t.Fatalf("got %d", got)
+	}
+}
+
+func TestHSIndexReplicaAndPeriod(t *testing.T) {
+	id, err := GenerateHSIdentity(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blind, err := BlindPublicSim(id.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := HSIndex(blind, 1, HSPeriodLength, HSPeriodNum)
+	b := HSIndex(blind, 2, HSPeriodLength, HSPeriodNum)
+	if bytes.Equal(a, b) || len(a) != 32 {
+		t.Fatal("replica")
+	}
+	if hexID := HSDescID(blind); hexID != encodeHex(a) {
+		t.Fatal("HSDescID is replica 1")
+	}
+	if bytes.Equal(NodeIndex(id.Public, DisasterSRV(HSPeriodLength, 1), HSPeriodLength, 1), NodeIndex(id.Public, DisasterSRV(HSPeriodLength, 2), HSPeriodLength, 2)) {
+		t.Fatal("node index ignored period")
+	}
+	if BlindedURLID(blind) == "" || len(BlindedURLID(blind)) < 40 {
+		t.Fatal("url id")
+	}
+}
+
+func encodeHex(b []byte) string {
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, len(b)*2)
+	for i, v := range b {
+		out[i*2] = hexdigits[v>>4]
+		out[i*2+1] = hexdigits[v&0x0f]
+	}
+	return string(out)
 }
