@@ -19,12 +19,19 @@ const (
 	CertTypeSigningVTLSCert  = 5
 	CertTypeSigningVLinkAuth = 6
 	CertTypeRSAIDVIdentity   = 7
+	CertTypeHSDescSigning    = 8
 	KeyTypeEd25519           = 1
 	KeyTypeSHA256X509        = 3
 	ExtSignedWithEd25519     = 4
 )
 
 func EncodeEd25519Cert(certType, keyType byte, certified [32]byte, signer ed25519.PrivateKey, includeSigningPub ed25519.PublicKey, hoursValid uint32) []byte {
+	return EncodeEd25519CertSign(certType, keyType, certified, func(m []byte) []byte {
+		return ed25519.Sign(signer, m)
+	}, includeSigningPub, hoursValid)
+}
+
+func EncodeEd25519CertSign(certType, keyType byte, certified [32]byte, sign func([]byte) []byte, includeSigningPub ed25519.PublicKey, hoursValid uint32) []byte {
 	exp := uint32(time.Now().Unix()/3600) + hoursValid
 	nExt := byte(0)
 	extLen := 0
@@ -56,8 +63,7 @@ func EncodeEd25519Cert(certType, keyType byte, certified [32]byte, signer ed2551
 		copy(body[off:], includeSigningPub)
 		off += 32
 	}
-	sig := ed25519.Sign(signer, body)
-	return append(body, sig...)
+	return append(body, sign(body)...)
 }
 
 type EdCert struct {
