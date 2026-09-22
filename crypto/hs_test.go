@@ -129,3 +129,26 @@ func TestCredentialSubcredential(t *testing.T) {
 		t.Fatal("subcredential ignored blinded key")
 	}
 }
+
+func TestHSDescID(t *testing.T) {
+	id, err := GenerateHSIdentity(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blind, err := BlindPublicSim(id.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := HSDescID(blind)
+	b := HSDescID(blind)
+	if a != b || len(a) != 64 {
+		t.Fatalf("%s", a)
+	}
+	other, err := BlindPublic(id.Public, 2, HSPeriodLength)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HSDescID(other) == a {
+		t.Fatal("period did not change descriptor id")
+	}
+}

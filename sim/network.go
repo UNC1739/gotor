@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,8 @@ type Network struct {
 	dirLn     net.Listener
 	dirSrv    *http.Server
 	log       *slog.Logger
+	hsMu      sync.Mutex
+	hs        map[string]string
 }
 
 func Launch(cfg Config) (*Network, error) {
@@ -47,7 +50,7 @@ func Launch(cfg Config) (*Network, error) {
 		{"gotor2", []string{}},
 		{"gotor3", []string{"Exit"}},
 	}
-	n := &Network{cfg: cfg, log: log}
+	n := &Network{cfg: cfg, log: log, hs: map[string]string{}}
 	auth, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		return nil, fmt.Errorf("authority key: %w", err)

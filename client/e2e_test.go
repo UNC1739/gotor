@@ -18,6 +18,7 @@ import (
 
 	"github.com/adam/gotor/cell"
 	"github.com/adam/gotor/client"
+	"github.com/adam/gotor/crypto"
 	"github.com/adam/gotor/directory"
 	"github.com/adam/gotor/sim"
 	"github.com/adam/gotor/socks"
@@ -712,3 +713,33 @@ func TestBootstrapUnreachable(t *testing.T) {
 
 
 
+func TestHSDirPublishFetch(t *testing.T) {
+	id, err := crypto.GenerateHSIdentity(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intro := crypto.HSIntro{Address: net.IPv4(127, 0, 0, 1), ORPort: 9001}
+	doc, err := crypto.BuildHSDesc(rand.Reader, id, intro, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blind, err := crypto.BlindPublicSim(id.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descID := crypto.HSDescID(blind)
+	if err := directory.PublishHS(netw.DirAddr(), descID, doc); err != nil {
+		t.Fatal(err)
+	}
+	got, err := directory.FetchHS(netw.DirAddr(), descID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != doc {
+		t.Fatalf("mismatch len %d vs %d", len(got), len(doc))
+	}
+	_, err = directory.FetchHS(netw.DirAddr(), strings.Repeat("0", 64))
+	if !errors.Is(err, directory.ErrHSNotFound) {
+		t.Fatalf("got %v", err)
+	}
+}
