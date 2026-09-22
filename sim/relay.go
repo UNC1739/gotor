@@ -91,6 +91,20 @@ type circuit struct {
 	packSince  int
 	expectDig  [][]byte
 	peer       *circuit
+	cfx        *confluxSet
+}
+
+type confluxSet struct {
+	nonce   [32]byte
+	legs    []*circuit
+	streams map[uint16]*exitStream
+}
+
+func (ci *circuit) streamMap() map[uint16]*exitStream {
+	if ci.cfx != nil {
+		return ci.cfx.streams
+	}
+	return ci.streams
 }
 
 type Relay struct {
@@ -107,6 +121,7 @@ type Relay struct {
 	usedIDs  map[circKey]struct{}
 	intro    map[string]*circuit
 	rend     map[string]*circuit
+	conflux  map[[32]byte]*confluxSet
 }
 
 func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
@@ -119,6 +134,7 @@ func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
 		usedIDs:  map[circKey]struct{}{},
 		intro:    map[string]*circuit{},
 		rend:     map[string]*circuit{},
+		conflux:  map[[32]byte]*confluxSet{},
 	}
 }
 
@@ -352,9 +368,16 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		r.doEstablishRendezvous(ci, msg)
 	case cell.RelayRendezvous1:
 		r.doRendezvous1(ci, msg)
+	case cell.RelayConfluxLink:
+		r.doConfluxLink(ci, msg)
+	case cell.RelayConfluxLinkedAck:
+	case cell.RelayConfluxSwitch:
+		if _, err := cell.ParseConfluxSwitch(msg.Data); err != nil {
+			_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		}
 	case cell.RelayData:
 		r.mu.Lock()
-		st := ci.streams[msg.StreamID]
+		st := ci.streamMap()[msg.StreamID]
 		r.mu.Unlock()
 		if st != nil {
 			r.noteDeliver(ci, st, msg.StreamID)
@@ -400,6 +423,24 @@ func (r *Relay) doPaddingNegotiate(ci *circuit, msg *cell.Relay) {
 		return
 	}
 	r.sendBack(ci, cell.RelayPaddingNegotiated, 0, cell.EncodePaddingNegotiated(n.Command, cell.CircPadResponseERR, n.MachineType, n.MachineCtr))
+}
+
+func (r *Relay) doConfluxLink(ci *circuit, msg *cell.Relay) {
+	lnk, err := cell.ParseConfluxLink(msg.Data)
+	if err != nil {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	r.mu.Lock()
+	set := r.conflux[lnk.Nonce]
+	if set == nil {
+		set = &confluxSet{nonce: lnk.Nonce, streams: map[uint16]*exitStream{}}
+		r.conflux[lnk.Nonce] = set
+	}
+	set.legs = append(set.legs, ci)
+	ci.cfx = set
+	r.mu.Unlock()
+	r.sendBack(ci, cell.RelayConfluxLinked, 0, cell.EncodeConfluxLink(lnk))
 }
 
 func (r *Relay) doIntroduce1(ci *circuit, msg *cell.Relay) {
@@ -625,7 +666,7 @@ func (r *Relay) spliceExit(ci *circuit, msg *cell.Relay, conn net.Conn, connecte
 	st := &exitStream{conn: conn, pack: cell.StreamWindowStart, deliv: cell.StreamWindowStart}
 	st.wrCond = sync.NewCond(&st.wrMu)
 	r.mu.Lock()
-	ci.streams[msg.StreamID] = st
+	ci.streamMap()[msg.StreamID] = st
 	r.mu.Unlock()
 	go st.writeLoop()
 	r.sendBack(ci, cell.RelayConnected, msg.StreamID, connected)
@@ -749,8 +790,9 @@ func writeFull(w io.Writer, p []byte) error {
 
 func (r *Relay) closeStream(ci *circuit, id uint16) {
 	r.mu.Lock()
-	st := ci.streams[id]
-	delete(ci.streams, id)
+	m := ci.streamMap()
+	st := m[id]
+	delete(m, id)
 	r.mu.Unlock()
 	if st != nil {
 		st.close()
@@ -771,7 +813,11 @@ func (r *Relay) destroy(ch *proto.Channel, id uint32, fromNext bool) {
 	if ci == nil {
 		return
 	}
-	for sid := range ci.streams {
+	var sids []uint16
+	for sid := range ci.streamMap() {
+		sids = append(sids, sid)
+	}
+	for _, sid := range sids {
 		r.closeStream(ci, sid)
 	}
 	if ci.next != nil && !fromNext {

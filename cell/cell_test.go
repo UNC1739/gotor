@@ -400,6 +400,37 @@ func TestExtend2(t *testing.T) {
 	}
 }
 
+func TestConfluxLink(t *testing.T) {
+	var nonce [32]byte
+	nonce[0] = 7
+	b := EncodeConfluxLink(ConfluxLink{Nonce: nonce, LastSent: 3, LastRecv: 4, UX: ConfluxUXMinLatency})
+	got, err := ParseConfluxLink(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != ConfluxVersion1 || got.Nonce != nonce || got.LastSent != 3 || got.LastRecv != 4 || got.UX != ConfluxUXMinLatency {
+		t.Fatalf("%+v", got)
+	}
+	if _, err := ParseConfluxLink([]byte{1, 2}); err == nil {
+		t.Fatal("short")
+	}
+	bad := EncodeConfluxLink(ConfluxLink{Version: 9, Nonce: nonce})
+	if _, err := ParseConfluxLink(bad); err == nil {
+		t.Fatal("bad version")
+	}
+}
+
+func TestConfluxSwitch(t *testing.T) {
+	b := EncodeConfluxSwitch(21)
+	n, err := ParseConfluxSwitch(b)
+	if err != nil || n != 21 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if _, err := ParseConfluxSwitch([]byte{1}); err == nil {
+		t.Fatal("short")
+	}
+}
+
 func TestIsVarLen(t *testing.T) {
 	if !IsVarLen(CmdVersions) || !IsVarLen(CmdCerts) || IsVarLen(CmdRelay) || IsVarLen(CmdCreate2) {
 		t.Fatal("varlen classification")

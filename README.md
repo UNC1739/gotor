@@ -18,6 +18,7 @@ Pure-Go Tor *client* protocol stack plus a local simulated Tor network. Nothing 
 | RELAY_BEGIN IPv6/IPv4 flags | yes |
 | Onion services v3 (sim HSDir + intro + rend) | yes, SOCKS `*.onion`; garbage/v2 still fail |
 | Congestion control extra-data + XON/XOFF | yes; SENDME v1 still used |
+| Conflux (prop 329) | yes; LINK/LINKED/SWITCH in sim |
 | C-Tor chutney / public network | optional `chutney` profile; no public network |
 
 Egress means: the client builds a 1–3 hop circuit and the **exit relay** dials a TCP destination the sim can reach (localhost in unit tests, `172.28.0.0/16` in compose). That is real onion-encrypted relay traffic, not a stub.
@@ -28,7 +29,7 @@ Egress means: the client builds a 1–3 hop circuit and the **exit relay** dials
 
 - **crypto**: ntor / ntor-v3, HS keys and descriptors, HKDF, onion layers
 - **cell / certs / proto / directory / socks**: encode/decode, handshake identity checks, consensus + microdescs, SOCKS5
-- **client integration**: 1/2/3-hop HTTP, SENDME window, isolation, DESTROY reasons, v3 `.onion` SOCKS, XON/XOFF
+- **client integration**: 1/2/3-hop HTTP, SENDME window, isolation, DESTROY reasons, v3 `.onion` SOCKS, XON/XOFF, conflux
 
 Compose `test-int` fetches `http://172.28.0.10:8080/` through SOCKS on a 3-hop circuit. GitHub Actions runs the same Docker unit + integration jobs. `make test-chutney` is opt-in: gotor client vs three Debian `tor` relays, same HTTP fetch.
 
