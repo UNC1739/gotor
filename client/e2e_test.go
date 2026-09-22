@@ -271,6 +271,51 @@ func TestPathSelectionRoles(t *testing.T) {
 	}
 }
 
+func TestPathSelectionStickyGuard(t *testing.T) {
+	c := bootstrap(t)
+	a, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a[0] != b[0] {
+		t.Fatalf("guard %s vs %s", a[0].Nickname, b[0].Nickname)
+	}
+	seen := map[string]bool{}
+	for _, r := range a {
+		if seen[r.Nickname] {
+			t.Fatalf("duplicate %s", r.Nickname)
+		}
+		seen[r.Nickname] = true
+	}
+}
+
+func TestPathSelectionWeightBias(t *testing.T) {
+	c := bootstrap(t)
+	if len(c.Relays) < 3 {
+		t.Fatal("need 3 relays")
+	}
+	for _, r := range c.Relays {
+		r.Bandwidth = 1
+	}
+	heavy := c.Relays[len(c.Relays)-1]
+	heavy.Bandwidth = 1000
+	counts := map[string]int{}
+	for range 200 {
+		p, err := c.PickPath(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[p[0].Nickname]++
+	}
+	if counts[heavy.Nickname] < 150 {
+		t.Fatalf("weight bias %v", counts)
+	}
+}
+
 func TestPaddingThenHTTP(t *testing.T) {
 	circ := circuit(t, 3)
 	if err := circ.SendPadding(); err != nil {

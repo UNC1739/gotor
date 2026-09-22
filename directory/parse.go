@@ -22,6 +22,7 @@ type Relay struct {
 	ExitAccept   bool
 	Proto        map[string][]int
 	MicroHash    []byte
+	Bandwidth    int
 }
 
 func (r *Relay) Has(flag string) bool {
@@ -112,12 +113,44 @@ func ParseConsensus(doc string) ([]*Relay, error) {
 				continue
 			}
 			cur.MicroHash = raw
+		case "w":
+			if cur == nil {
+				continue
+			}
+			for _, f := range fields[1:] {
+				k, v, ok := strings.Cut(f, "=")
+				if ok && k == "Bandwidth" {
+					cur.Bandwidth, _ = strconv.Atoi(v)
+				}
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
 	return relays, nil
+}
+
+func ParseBandwidthWeights(doc string) map[string]int {
+	out := map[string]int{}
+	sc := bufio.NewScanner(strings.NewReader(doc))
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 0 || fields[0] != "bandwidth-weights" {
+			continue
+		}
+		for _, f := range fields[1:] {
+			k, v, ok := strings.Cut(f, "=")
+			if !ok {
+				continue
+			}
+			n, err := strconv.Atoi(v)
+			if err == nil {
+				out[k] = n
+			}
+		}
+	}
+	return out
 }
 
 func ParseDescriptors(doc string, relays []*Relay) error {

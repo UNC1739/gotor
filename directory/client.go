@@ -2,6 +2,7 @@ package directory
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,7 +43,7 @@ func FetchMicro(dirAddr string) ([]*Relay, error) {
 	var hashes []string
 	for _, r := range relays {
 		if len(r.MicroHash) == 32 {
-			hashes = append(hashes, B64(r.MicroHash))
+			hashes = append(hashes, hex.EncodeToString(r.MicroHash))
 		}
 	}
 	if len(hashes) == 0 {
