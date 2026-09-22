@@ -14,10 +14,23 @@ import (
 const (
 	hsNtorProto = "tor-hs-ntor-curve25519-sha3-256-1"
 	tHsEnc      = hsNtorProto + ":hs_key_extract"
+	tHsVerify   = hsNtorProto + ":hs_verify"
+	tHsMAC      = hsNtorProto + ":hs_mac"
 	mHsExpand   = hsNtorProto + ":hs_key_expand"
 	introMACLen = 32
 	introKeyLen = 32
+	hsSHA3Len   = 32
+	hsAESLen    = 32
 )
+
+type HSNtorClient struct {
+	x, X, B, auth, sub, expBx []byte
+}
+
+type HSNtorServer struct {
+	Handshake []byte
+	Keys      *CircuitKeys
+}
 
 func IntroHandshakeMAC(kh, msg []byte) []byte {
 	m := hmac.New(sha3.New256, kh)
@@ -25,19 +38,30 @@ func IntroHandshakeMAC(kh, msg []byte) []byte {
 	return m.Sum(nil)
 }
 
+func hmacSHA3(key string, msg []byte) []byte {
+	m := hmac.New(sha3.New256, []byte(key))
+	m.Write(msg)
+	return m.Sum(nil)
+}
+
 func IntroduceEncrypt(encPubB, authKey, subcred, plaintext []byte) ([]byte, error) {
+	blob, _, err := IntroduceEncryptClient(encPubB, authKey, subcred, plaintext)
+	return blob, err
+}
+
+func IntroduceEncryptClient(encPubB, authKey, subcred, plaintext []byte) ([]byte, *HSNtorClient, error) {
 	x, err := GenerateKeyPair(rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	secret, err := exp(x.Private[:], encPubB)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	encKey, macKey := hsIntroKeys(secret, authKey, x.Public[:], encPubB, subcred)
 	block, err := aes.NewCipher(encKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	iv := make([]byte, aes.BlockSize)
 	enc := make([]byte, len(plaintext))
@@ -50,23 +74,36 @@ func IntroduceEncrypt(encPubB, authKey, subcred, plaintext []byte) ([]byte, erro
 	out = append(out, x.Public[:]...)
 	out = append(out, enc...)
 	out = append(out, m.Sum(nil)...)
-	return out, nil
+	st := &HSNtorClient{
+		x:     append([]byte(nil), x.Private[:]...),
+		X:     append([]byte(nil), x.Public[:]...),
+		B:     append([]byte(nil), encPubB...),
+		auth:  append([]byte(nil), authKey...),
+		sub:   append([]byte(nil), subcred...),
+		expBx: secret,
+	}
+	return out, st, nil
 }
 
 func IntroduceDecrypt(encPrivB, authKey, subcred, encrypted []byte) ([]byte, error) {
+	pt, _, err := IntroduceDecryptServer(encPrivB, authKey, subcred, encrypted)
+	return pt, err
+}
+
+func IntroduceDecryptServer(encPrivB, authKey, subcred, encrypted []byte) ([]byte, *HSNtorServer, error) {
 	if len(encrypted) < 32+introMACLen {
-		return nil, fmt.Errorf("short INTRODUCE encrypted")
+		return nil, nil, fmt.Errorf("short INTRODUCE encrypted")
 	}
 	clientPK := encrypted[:32]
 	mac := encrypted[len(encrypted)-introMACLen:]
 	enc := encrypted[32 : len(encrypted)-introMACLen]
 	secret, err := exp(encPrivB, clientPK)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	encPubB, err := curve25519.X25519(encPrivB, curve25519.Basepoint)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	encKey, macKey := hsIntroKeys(secret, authKey, clientPK, encPubB, subcred)
 	macIn := append(append(append([]byte{}, authKey...), 0), clientPK...)
@@ -74,16 +111,70 @@ func IntroduceDecrypt(encPrivB, authKey, subcred, encrypted []byte) ([]byte, err
 	m := hmac.New(sha3.New256, macKey)
 	m.Write(macIn)
 	if !hmac.Equal(mac, m.Sum(nil)) {
-		return nil, fmt.Errorf("INTRODUCE mac")
+		return nil, nil, fmt.Errorf("INTRODUCE mac")
 	}
 	block, err := aes.NewCipher(encKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	iv := make([]byte, aes.BlockSize)
 	pt := make([]byte, len(enc))
 	cipher.NewCTR(block, iv).XORKeyStream(pt, enc)
-	return pt, nil
+
+	y, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	xy, err := exp(y.Private[:], clientPK)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, authMAC, err := hsRendKeys(xy, secret, authKey, encPubB, clientPK, y.Public[:])
+	if err != nil {
+		return nil, nil, err
+	}
+	hs := append(append([]byte(nil), y.Public[:]...), authMAC...)
+	return pt, &HSNtorServer{Handshake: hs, Keys: keys}, nil
+}
+
+func (st *HSNtorClient) Finish(handshake []byte) (*CircuitKeys, error) {
+	if st == nil || len(handshake) < 64 {
+		return nil, fmt.Errorf("short RENDEZVOUS2 handshake")
+	}
+	Y := handshake[:32]
+	got := handshake[32:64]
+	xy, err := exp(st.x, Y)
+	if err != nil {
+		return nil, err
+	}
+	keys, authMAC, err := hsRendKeys(xy, st.expBx, st.auth, st.B, st.X, Y)
+	if err != nil {
+		return nil, err
+	}
+	if !hmac.Equal(got, authMAC) {
+		return nil, fmt.Errorf("RENDEZVOUS AUTH")
+	}
+	return keys, nil
+}
+
+func hsRendKeys(xy, xb, auth, B, X, Y []byte) (*CircuitKeys, []byte, error) {
+	secret := append(append(append(append(append(append(append([]byte{}, xy...), xb...), auth...), B...), X...), Y...), hsNtorProto...)
+	seed := hmacSHA3(tHsEnc, secret)
+	verify := hmacSHA3(tHsVerify, secret)
+	authIn := append(append(append(append(append(append(append([]byte{}, verify...), auth...), B...), Y...), X...), hsNtorProto...), []byte("Server")...)
+	authMAC := hmacSHA3(tHsMAC, authIn)
+	h := sha3.NewShake256()
+	h.Write(seed)
+	h.Write([]byte(mHsExpand))
+	out := make([]byte, hsSHA3Len*2+hsAESLen*2)
+	_, _ = h.Read(out)
+	keys := &CircuitKeys{
+		Df: out[0:32],
+		Db: out[32:64],
+		Kf: out[64:96],
+		Kb: out[96:128],
+	}
+	return keys, authMAC, nil
 }
 
 func hsIntroKeys(expBx, authKey, X, B, subcred []byte) (encKey, macKey []byte) {

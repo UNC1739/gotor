@@ -90,6 +90,7 @@ type circuit struct {
 	circDel    int
 	packSince  int
 	expectDig  [][]byte
+	peer       *circuit
 }
 
 type Relay struct {
@@ -105,6 +106,7 @@ type Relay struct {
 	serving  map[*proto.Channel]bool
 	usedIDs  map[circKey]struct{}
 	intro    map[string]*circuit
+	rend     map[string]*circuit
 }
 
 func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
@@ -116,6 +118,7 @@ func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
 		serving:  map[*proto.Channel]bool{},
 		usedIDs:  map[circKey]struct{}{},
 		intro:    map[string]*circuit{},
+		rend:     map[string]*circuit{},
 	}
 }
 
@@ -300,6 +303,7 @@ func (r *Relay) onRelay(ch *proto.Channel, c *cell.Cell) {
 		rec := in.hop.RecognizeForward(body)
 		next := in.next
 		nextID := in.nextID
+		peer := in.peer
 		in.mu.Unlock()
 		if rec {
 			msg, err := cell.DecodeRelay(body)
@@ -309,10 +313,17 @@ func (r *Relay) onRelay(ch *proto.Channel, c *cell.Cell) {
 			r.handleRecognized(in, msg)
 			return
 		}
-		if next == nil {
+		if next != nil {
+			_ = next.WriteCell(&cell.Cell{CircID: nextID, Command: cell.CmdRelay, Body: body})
 			return
 		}
-		_ = next.WriteCell(&cell.Cell{CircID: nextID, Command: cell.CmdRelay, Body: body})
+		if peer != nil && peer.prev != nil {
+			peer.mu.Lock()
+			peer.hop.EncryptBackward(body)
+			prev, id := peer.prev, peer.prevID
+			peer.mu.Unlock()
+			_ = prev.WriteCell(&cell.Cell{CircID: id, Command: cell.CmdRelay, Body: body})
+		}
 		return
 	}
 	if out != nil && out.prev != nil {
@@ -337,6 +348,10 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		r.doEstablishIntro(ci, msg)
 	case cell.RelayIntroduce1:
 		r.doIntroduce1(ci, msg)
+	case cell.RelayEstablishRendezvous:
+		r.doEstablishRendezvous(ci, msg)
+	case cell.RelayRendezvous1:
+		r.doRendezvous1(ci, msg)
 	case cell.RelayData:
 		r.mu.Lock()
 		st := ci.streams[msg.StreamID]
@@ -392,6 +407,44 @@ func (r *Relay) doIntroduce1(ci *circuit, msg *cell.Relay) {
 	}
 	r.sendBack(svc, cell.RelayIntroduce2, 0, msg.Data)
 	r.sendBack(ci, cell.RelayIntroduceAck, 0, cell.EncodeIntroduceAck(0))
+}
+
+func (r *Relay) doEstablishRendezvous(ci *circuit, msg *cell.Relay) {
+	if len(msg.Data) < 20 {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	cookie := string(msg.Data[:20])
+	r.mu.Lock()
+	if _, ok := r.rend[cookie]; ok {
+		r.mu.Unlock()
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	r.rend[cookie] = ci
+	r.mu.Unlock()
+	r.sendBack(ci, cell.RelayRendezvousEstablished, 0, nil)
+}
+
+func (r *Relay) doRendezvous1(ci *circuit, msg *cell.Relay) {
+	if len(msg.Data) < 20 {
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	cookie := string(msg.Data[:20])
+	hsinfo := append([]byte(nil), msg.Data[20:]...)
+	r.mu.Lock()
+	cli := r.rend[cookie]
+	if cli == nil {
+		r.mu.Unlock()
+		_ = ci.prev.WriteCell(cell.Destroy(ci.prevID, cell.DestroyProtocol))
+		return
+	}
+	delete(r.rend, cookie)
+	cli.peer = ci
+	ci.peer = cli
+	r.mu.Unlock()
+	r.sendBack(cli, cell.RelayRendezvous2, 0, hsinfo)
 }
 
 func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {

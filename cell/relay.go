@@ -28,11 +28,15 @@ const (
 	RelayExtend2   = 14
 	RelayExtended2 = 15
 
-	RelayEstablishIntro   = 32
-	RelayIntroduce1       = 34
-	RelayIntroduce2       = 35
-	RelayIntroEstablished = 38
-	RelayIntroduceAck     = 40
+	RelayEstablishIntro        = 32
+	RelayEstablishRendezvous   = 33
+	RelayIntroduce1            = 34
+	RelayIntroduce2            = 35
+	RelayRendezvous1           = 36
+	RelayRendezvous2           = 37
+	RelayIntroEstablished      = 38
+	RelayRendezvousEstablished = 39
+	RelayIntroduceAck          = 40
 
 	EndReasonDone           = 6
 	EndReasonConnectRefused = 3
