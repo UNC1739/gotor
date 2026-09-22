@@ -71,36 +71,10 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	}
 	circ.flowCond = sync.NewCond(&circ.flowMu)
 
-	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
-	if err != nil {
+	if err := circ.createFirstHop(guard, len(relays) == 1); err != nil {
 		ch.Close()
 		return nil, err
 	}
-	if err := ch.WriteCell(cell.Create2(circID, crypto.HTypeNtor, hs)); err != nil {
-		ch.Close()
-		return nil, err
-	}
-	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hdata, err := cell.ParseCreated2(created.Body)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	keys, err := st.Finish(hdata)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hop, err := crypto.NewHop(keys)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	circ.hops = append(circ.hops, hop)
 	go circ.dispatch()
 
 	for i := 1; i < len(relays); i++ {
@@ -110,6 +84,61 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 		}
 	}
 	return circ, nil
+}
+
+func (circ *Circuit) createFirstHop(guard *directory.Relay, fast bool) error {
+	if fast {
+		x, err := crypto.CreateFastHandshake(rand.Reader)
+		if err != nil {
+			return err
+		}
+		if err := circ.ch.WriteCell(cell.CreateFast(circ.id, x)); err != nil {
+			return err
+		}
+		created, err := circ.waitLink(cell.CmdCreatedFast, 10*time.Second)
+		if err != nil {
+			return err
+		}
+		y, kh, err := cell.ParseCreatedFast(created.Body)
+		if err != nil {
+			return err
+		}
+		keys, err := crypto.CreateFastFinish(x, y, kh)
+		if err != nil {
+			return err
+		}
+		hop, err := crypto.NewHop(keys)
+		if err != nil {
+			return err
+		}
+		circ.hops = append(circ.hops, hop)
+		return nil
+	}
+	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
+	if err != nil {
+		return err
+	}
+	if err := circ.ch.WriteCell(cell.Create2(circ.id, crypto.HTypeNtor, hs)); err != nil {
+		return err
+	}
+	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	hdata, err := cell.ParseCreated2(created.Body)
+	if err != nil {
+		return err
+	}
+	keys, err := st.Finish(hdata)
+	if err != nil {
+		return err
+	}
+	hop, err := crypto.NewHop(keys)
+	if err != nil {
+		return err
+	}
+	circ.hops = append(circ.hops, hop)
+	return nil
 }
 
 func (circ *Circuit) waitLink(cmd byte, d time.Duration) (*cell.Cell, error) {
@@ -313,6 +342,56 @@ func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {
 	defer circ.cryptoMu.Unlock()
 	crypto.OnionEncrypt(circ.hops, dest, body)
 	return circ.ch.WriteCell(&cell.Cell{CircID: circ.id, Command: linkCmd, Body: body})
+}
+
+func (circ *Circuit) Resolve(host string) ([]net.IP, error) {
+	circ.mu.Lock()
+	sid := circ.nextSID
+	circ.nextSID++
+	if circ.nextSID == 0 {
+		circ.nextSID = 1
+	}
+	wait := make(chan *cell.Relay, 4)
+	circ.waiters[sid] = wait
+	circ.mu.Unlock()
+	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
+		Command:  cell.RelayResolve,
+		StreamID: sid,
+		Data:     cell.EncodeResolve(host),
+	}); err != nil {
+		return nil, err
+	}
+	t := time.NewTimer(15 * time.Second)
+	defer t.Stop()
+	var msg *cell.Relay
+	select {
+	case msg = <-wait:
+	case <-t.C:
+		return nil, fmt.Errorf("timeout waiting for RESOLVED")
+	}
+	circ.mu.Lock()
+	delete(circ.waiters, sid)
+	circ.mu.Unlock()
+	if msg.Command != cell.RelayResolved {
+		return nil, fmt.Errorf("expected RESOLVED, got %d", msg.Command)
+	}
+	ans, err := cell.ParseResolved(msg.Data)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	for _, a := range ans {
+		switch a.Type {
+		case cell.ResolvedErr, cell.ResolvedErrTransient:
+			return nil, fmt.Errorf("resolve error")
+		case cell.ResolvedIPv4, cell.ResolvedIPv6:
+			ips = append(ips, net.IP(a.Value))
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no addresses")
+	}
+	return ips, nil
 }
 
 func (circ *Circuit) Close() error {

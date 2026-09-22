@@ -112,6 +112,36 @@ func TestVpaddingRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCreateFastCells(t *testing.T) {
+	x := bytes.Repeat([]byte{1}, 20)
+	y := bytes.Repeat([]byte{2}, 20)
+	kh := bytes.Repeat([]byte{3}, 20)
+	var buf bytes.Buffer
+	if err := CreateFast(0x80000003, x).Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	px, err := ParseCreateFast(got.Body)
+	if err != nil || !bytes.Equal(px, x) {
+		t.Fatalf("%v %v", px, err)
+	}
+	buf.Reset()
+	if err := CreatedFast(0x80000003, y, kh).Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gy, gkh, err := ParseCreatedFast(got.Body)
+	if err != nil || !bytes.Equal(gy, y) || !bytes.Equal(gkh, kh) {
+		t.Fatalf("%v %v %v", gy, gkh, err)
+	}
+}
+
 func TestDestroy(t *testing.T) {
 	c := Destroy(0x80000002, 6)
 	var buf bytes.Buffer
@@ -166,6 +196,23 @@ func TestRelayEncode(t *testing.T) {
 	}
 	if _, _, err := ParseBegin([]byte("noport")); err == nil {
 		t.Fatal("expected bad begin")
+	}
+}
+
+func TestResolveRoundTrip(t *testing.T) {
+	if ParseResolve(EncodeResolve("example.com")) != "example.com" {
+		t.Fatal("hostname")
+	}
+	ans := []Resolved{
+		{Type: ResolvedIPv4, Value: []byte{127, 0, 0, 1}, TTL: 60},
+		{Type: ResolvedIPv6, Value: make([]byte, 16), TTL: 30},
+	}
+	got, err := ParseResolved(EncodeResolved(ans))
+	if err != nil || len(got) != 2 || got[0].Type != ResolvedIPv4 || got[0].TTL != 60 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got[0].Value[0] != 127 {
+		t.Fatal(got[0].Value)
 	}
 }
 

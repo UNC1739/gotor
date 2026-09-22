@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/adam/gotor/client"
+	"github.com/adam/gotor/directory"
 	"github.com/adam/gotor/sim"
 	"github.com/adam/gotor/socks"
 )
@@ -178,6 +179,43 @@ func TestDirectoryBootstrap(t *testing.T) {
 	}
 	if !sawGuard || !sawExit || !sawMiddle {
 		t.Fatalf("roles g=%v m=%v e=%v", sawGuard, sawMiddle, sawExit)
+	}
+}
+
+func TestBeginDirConsensus(t *testing.T) {
+	circ := circuit(t, 3)
+	st, err := circ.DialDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	body, err := directory.HTTPGet(st, "/tor/status-vote/current/consensus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relays, err := directory.ParseConsensus(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(relays) != 3 {
+		t.Fatalf("relays=%d body=%q", len(relays), body[:min(len(body), 200)])
+	}
+}
+
+func TestResolveLocalhost(t *testing.T) {
+	circ := circuit(t, 3)
+	ips, err := circ.Resolve("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ip := range ips {
+		if ip.Equal(net.IPv4(127, 0, 0, 1)) || ip.Equal(net.ParseIP("::1")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ips=%v", ips)
 	}
 }
 

@@ -73,6 +73,34 @@ func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
 	}); err != nil {
 		return nil, err
 	}
+	return circ.waitConnected(s, wait)
+}
+
+func (circ *Circuit) DialDir() (*Stream, error) {
+	circ.mu.Lock()
+	sid := circ.nextSID
+	circ.nextSID++
+	if circ.nextSID == 0 {
+		circ.nextSID = 1
+	}
+	wait := make(chan *cell.Relay, 4)
+	circ.waiters[sid] = wait
+	circ.mu.Unlock()
+	s := &Stream{id: sid, circ: circ, pack: cell.StreamWindowStart, deliv: cell.StreamWindowStart}
+	s.cond = sync.NewCond(&s.mu)
+	circ.mu.Lock()
+	circ.streams[sid] = s
+	circ.mu.Unlock()
+	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
+		Command:  cell.RelayBeginDir,
+		StreamID: sid,
+	}); err != nil {
+		return nil, err
+	}
+	return circ.waitConnected(s, wait)
+}
+
+func (circ *Circuit) waitConnected(s *Stream, wait <-chan *cell.Relay) (*Stream, error) {
 	t := time.NewTimer(15 * time.Second)
 	defer t.Stop()
 	select {
@@ -82,7 +110,7 @@ func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
 			if len(msg.Data) > 0 {
 				reason = msg.Data[0]
 			}
-			return nil, fmt.Errorf("BEGIN rejected reason=%d", reason)
+			return nil, fmt.Errorf("stream rejected reason=%d", reason)
 		}
 		if msg.Command != cell.RelayConnected {
 			return nil, fmt.Errorf("expected CONNECTED, got %d", msg.Command)
@@ -91,8 +119,8 @@ func (circ *Circuit) Dial(host string, port uint16) (*Stream, error) {
 		return nil, fmt.Errorf("timeout waiting for CONNECTED")
 	}
 	circ.mu.Lock()
-	delete(circ.waiters, sid)
-	circ.streams[sid] = s
+	delete(circ.waiters, s.id)
+	circ.streams[s.id] = s
 	circ.mu.Unlock()
 	return s, nil
 }
