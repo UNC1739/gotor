@@ -34,3 +34,25 @@ func TestNeedSendmeStream(t *testing.T) {
 		t.Fatalf("sends=%d", sends)
 	}
 }
+
+func TestNeedSendmeBoundaries(t *testing.T) {
+	if NeedSendme(CircWindowStart, CircWindowStart, CircWindowInc) {
+		t.Fatal("full window")
+	}
+	if NeedSendme(CircWindowStart-CircWindowInc+1, CircWindowStart, CircWindowInc) {
+		t.Fatal("one above increment")
+	}
+	if !NeedSendme(CircWindowStart-CircWindowInc, CircWindowStart, CircWindowInc) {
+		t.Fatal("exactly increment")
+	}
+	if !NeedSendme(0, CircWindowStart, CircWindowInc) {
+		t.Fatal("empty window")
+	}
+	if NeedSendme(StreamWindowStart-StreamWindowInc+1, StreamWindowStart, StreamWindowInc) {
+		t.Fatal("stream one above")
+	}
+	if !NeedSendme(StreamWindowStart-StreamWindowInc, StreamWindowStart, StreamWindowInc) {
+		t.Fatal("stream exactly increment")
+	}
+}
+

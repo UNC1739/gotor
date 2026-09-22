@@ -506,6 +506,31 @@ Update the status table when merging protocol PRs (CREATE_FAST, BEGIN_DIR, SENDM
 
 ---
 
+### Release polish
+
+- [ ] **Release polish** — GitHub Actions PR gates, coverage badge, tagged releases
+
+Ship the GitHub-facing bits before tagging a public release. Stay sim/Docker; still no public Tor network.
+
+**Now:** no `.github/workflows`. README has no badges. Releases would be manual.
+
+**Do:**
+
+1. **PR CI** (`.github/workflows/ci.yml`): on pull_request and push to `main`. Jobs:
+   - `lint`: `gofmt -l` (fail if dirty) + `go vet ./...`. Optional `golangci-lint` only if a committed config exists; do not bikeshed a 50-linter pile.
+   - `test`: `make test-unit` (Docker compose unit profile, same as today). Do not run `go test` on the GHA host.
+   - Optional `integration`: `make test` on main/tags only (slow compose stack).
+2. **Coverage sticker:** in the unit job, `go test -coverprofile` *inside* the test-unit container, upload to [codecov](https://codecov.io) or [coveralls](https://coveralls.io), put the badge on the README next to the title. Also a GitHub Actions badge for CI. Numbers must match `go test ./...` inside Docker, not a host-only subset.
+3. **Release workflow** (`.github/workflows/release.yml`): on `v*` tags. `docker compose build` the four binaries (`gotor`, `gotor-net`, `gotor-check`, `origin`), `docker create` + `docker cp` linux/amd64 (and arm64 if easy) artifacts, `gh release create` with those binaries + checksums. No public-network claims in the release notes. Goreleaser is fine if it is less glue than hand-rolled; otherwise keep it boring YAML.
+4. README: badges (CI + coverage), one-line “releases” pointer, keep the capability table honest.
+
+**Tests:** CI green on a PR; a dry-run tag on a throwaway repo or `workflow_dispatch` produces a draft release with binaries.
+
+**Out of scope:** auto-publishing to Docker Hub, Homebrew, or claiming C-Tor interop. Do not run tests against the public Tor network.
+
+---
+
+
 ## Working rules (for implementers)
 
 - New branch from `main`, one checkbox, Docker tests, commit, `gh pr create`.

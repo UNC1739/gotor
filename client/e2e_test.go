@@ -479,3 +479,62 @@ func TestTwoHopCircuit(t *testing.T) {
 	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
 	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
 }
+
+func TestResolveFailure(t *testing.T) {
+	circ := circuit(t, 3)
+	_, err := circ.Resolve("no-such-host.invalid")
+	if err == nil {
+		t.Fatal("expected resolve error")
+	}
+}
+
+func TestBeginDirOneHop(t *testing.T) {
+	circ := circuit(t, 1)
+	st, err := circ.DialDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	body, err := directory.HTTPGet(st, "/tor/status-vote/current/consensus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	relays, err := directory.ParseConsensus(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(relays) != 3 {
+		t.Fatalf("relays=%d", len(relays))
+	}
+}
+
+func TestCircuitCloseThenDial(t *testing.T) {
+	circ := circuit(t, 3)
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	if err := circ.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := circ.Dial(httpHost, httpPort); err == nil {
+		t.Fatal("expected dial on closed circuit")
+	}
+}
+
+func TestBootstrapUnreachable(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	if _, err := client.Bootstrap(addr); err == nil {
+		t.Fatal("expected unreachable")
+	}
+}
+
+
+
+

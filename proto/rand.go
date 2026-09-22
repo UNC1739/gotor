@@ -1,9 +1,8 @@
 package proto
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"io"
+)
 
-func randReader() *randReaderT { return &randReaderT{} }
-
-type randReaderT struct{}
-
-func (*randReaderT) Read(p []byte) (int, error) { return rand.Read(p) }
+var randReader io.Reader = rand.Reader
