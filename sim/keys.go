@@ -16,20 +16,20 @@ import (
 )
 
 type RelayKeys struct {
-	Nickname     string
-	Flags        []string
-	Listen       string
-	AdvertiseIP  net.IP
-	ORPort       uint16
-	RSA          *rsa.PrivateKey
-	Identity     [20]byte
-	EdIDPub      ed25519.PublicKey
-	EdIDPriv     ed25519.PrivateKey
-	EdSignPub    ed25519.PublicKey
-	EdSignPriv   ed25519.PrivateKey
-	NTor         *gtcrypto.KeyPair
-	TLS          *tls.Certificate
-	TLSCertDER   []byte
+	Nickname    string
+	Flags       []string
+	Listen      string
+	AdvertiseIP net.IP
+	ORPort      uint16
+	RSA         *rsa.PrivateKey
+	Identity    [20]byte
+	EdIDPub     ed25519.PublicKey
+	EdIDPriv    ed25519.PrivateKey
+	EdSignPub   ed25519.PublicKey
+	EdSignPriv  ed25519.PrivateKey
+	NTor        *gtcrypto.KeyPair
+	TLS         *tls.Certificate
+	TLSCertDER  []byte
 }
 
 func generateRelayKeys(nickname string, flags []string, advertise net.IP, hosts []string) (*RelayKeys, error) {
@@ -89,6 +89,15 @@ func (k *RelayKeys) Responder() proto.ResponderKeys {
 		SignPriv:   k.EdSignPriv,
 		TLSCertDER: k.TLSCertDER,
 		Advertise:  adv,
+	}
+}
+
+func (k *RelayKeys) Initiator() proto.InitiatorKeys {
+	return proto.InitiatorKeys{
+		IDPub:    k.EdIDPub,
+		IDPriv:   k.EdIDPriv,
+		SignPub:  k.EdSignPub,
+		SignPriv: k.EdSignPriv,
 	}
 }
 

@@ -3,6 +3,7 @@ package proto
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"net"
@@ -14,15 +15,31 @@ import (
 var SupportedLink = []uint16{4, 5}
 
 type ResponderKeys struct {
-	IDPub     ed25519.PublicKey
-	IDPriv    ed25519.PrivateKey
-	SignPub   ed25519.PublicKey
-	SignPriv  ed25519.PrivateKey
+	IDPub      ed25519.PublicKey
+	IDPriv     ed25519.PrivateKey
+	SignPub    ed25519.PublicKey
+	SignPriv   ed25519.PrivateKey
 	TLSCertDER []byte
 	Advertise  [4]byte
 }
 
+type InitiatorKeys struct {
+	IDPub    ed25519.PublicKey
+	IDPriv   ed25519.PrivateKey
+	SignPub  ed25519.PublicKey
+	SignPriv ed25519.PrivateKey
+}
+
 func HandshakeInitiator(ch *Channel, expectID ed25519.PublicKey) (ed25519.PublicKey, error) {
+	return handshakeInitiator(ch, expectID, nil)
+}
+
+func HandshakeInitiatorRelay(ch *Channel, expectID ed25519.PublicKey, keys InitiatorKeys) (ed25519.PublicKey, error) {
+	return handshakeInitiator(ch, expectID, &keys)
+}
+
+func handshakeInitiator(ch *Channel, expectID ed25519.PublicKey, relay *InitiatorKeys) (ed25519.PublicKey, error) {
+	sentVers := cell.Versions(2, SupportedLink...)
 	if err := ch.WriteVersions(SupportedLink...); err != nil {
 		return nil, err
 	}
@@ -65,6 +82,11 @@ func HandshakeInitiator(ch *Channel, expectID ed25519.PublicKey) (ed25519.Public
 	if err != nil {
 		return nil, err
 	}
+	if relay != nil {
+		if err := initiatorAuthenticate(ch, *relay, id, sentVers, vc, certsCell, authCell); err != nil {
+			return nil, err
+		}
+	}
 	other := [4]byte{}
 	if ip4 := ipv4Of(ch.Conn.RemoteAddr()); ip4 != nil {
 		copy(other[:], ip4)
@@ -74,6 +96,37 @@ func HandshakeInitiator(ch *Channel, expectID ed25519.PublicKey) (ed25519.Public
 		return nil, err
 	}
 	return id, nil
+}
+
+func initiatorAuthenticate(ch *Channel, keys InitiatorKeys, respID ed25519.PublicKey, sentVers, recvVers, respCerts, authChal *cell.Cell) error {
+	methods, err := parseAuthChallenge(authChal.Body)
+	if err != nil {
+		return err
+	}
+	if !hasAuthMethod(methods, AuthTypeEd25519) {
+		return fmt.Errorf("responder does not offer Ed25519 AUTH")
+	}
+	linkPub, linkPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	idCert := certs.EncodeEd25519Cert(certs.CertTypeIdentityVSigning, certs.KeyTypeEd25519, bytesTo32(keys.SignPub), keys.IDPriv, keys.IDPub, 24*365*10)
+	linkCert := certs.EncodeEd25519Cert(certs.CertTypeSigningVLinkAuth, certs.KeyTypeEd25519, bytesTo32(linkPub), keys.SignPriv, nil, 24*365*10)
+	certsBody := certs.EncodeCERTS([][2][]byte{
+		{{certs.CertTypeIdentityVSigning}, idCert},
+		{{certs.CertTypeSigningVLinkAuth}, linkCert},
+	})
+	initCerts := &cell.Cell{Command: cell.CmdCerts, Body: certsBody}
+	if err := ch.WriteCell(initCerts); err != nil {
+		return err
+	}
+	slog := digestLog(recvVers, ch.CircIDLen, respCerts, authChal)
+	clog := digestLog(sentVers, ch.CircIDLen, initCerts)
+	authBody, err := buildAuthenticate(ch, keys.IDPub, respID, slog, clog, linkPriv)
+	if err != nil {
+		return err
+	}
+	return ch.WriteCell(&cell.Cell{Command: cell.CmdAuthenticate, Body: authBody})
 }
 
 func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
@@ -88,6 +141,7 @@ func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
 	if err != nil {
 		return err
 	}
+	sentVers := cell.Versions(2, SupportedLink...)
 	if err := ch.WriteVersions(SupportedLink...); err != nil {
 		return err
 	}
@@ -104,10 +158,12 @@ func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
 		{{certs.CertTypeIdentityVSigning}, idCert},
 		{{certs.CertTypeSigningVTLSCert}, tlsCert},
 	})
-	if err := ch.WriteCell(&cell.Cell{Command: cell.CmdCerts, Body: certsBody}); err != nil {
+	sentCerts := &cell.Cell{Command: cell.CmdCerts, Body: certsBody}
+	if err := ch.WriteCell(sentCerts); err != nil {
 		return err
 	}
-	if err := ch.WriteCell(&cell.Cell{Command: cell.CmdAuthChallenge, Body: certs.EncodeAuthChallenge()}); err != nil {
+	sentChal := &cell.Cell{Command: cell.CmdAuthChallenge, Body: certs.EncodeAuthChallenge()}
+	if err := ch.WriteCell(sentChal); err != nil {
 		return err
 	}
 	other := [4]byte{}
@@ -118,6 +174,7 @@ func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
 	if err := ch.WriteCell(&cell.Cell{Command: cell.CmdNetinfo, Body: ni}); err != nil {
 		return err
 	}
+	var initCerts, initAuth *cell.Cell
 	for {
 		c, err := ch.ReadCell()
 		if err != nil {
@@ -125,9 +182,24 @@ func HandshakeResponder(ch *Channel, keys ResponderKeys) error {
 		}
 		switch c.Command {
 		case cell.CmdNetinfo:
-			return nil
-		case cell.CmdCerts, cell.CmdAuthenticate, cell.CmdVpadding, cell.CmdPadding:
-			continue
+			if initCerts == nil && initAuth == nil {
+				return nil
+			}
+			if initCerts == nil || initAuth == nil {
+				return fmt.Errorf("incomplete initiator AUTHENTICATE")
+			}
+			idPub, linkPub, err := verifyInitiatorCERTS(initCerts.Body)
+			if err != nil {
+				return err
+			}
+			slog := digestLog(sentVers, ch.CircIDLen, sentCerts, sentChal)
+			clog := digestLog(vc, ch.CircIDLen, initCerts)
+			return verifyAuthenticate(ch, keys, idPub, linkPub, slog, clog, initAuth.Body)
+		case cell.CmdCerts:
+			initCerts = c
+		case cell.CmdAuthenticate:
+			initAuth = c
+		case cell.CmdVpadding, cell.CmdPadding:
 		default:
 			return fmt.Errorf("unexpected initiator handshake cell %d", c.Command)
 		}
