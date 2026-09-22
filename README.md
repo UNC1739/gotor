@@ -1,6 +1,6 @@
 # gotor
 
-Pure-Go Tor *client* protocol stack plus a local simulated Tor network. Nothing here talks to the public Tor network. All binaries are built and run in Docker.
+Pure-Go Tor *client* protocol stack plus a local simulated Tor network. Default paths stay on the sim. `GOTOR_DIR=public` fetches a live microdesc consensus from v3 directory authorities. All binaries are built and run in Docker.
 
 ## What works
 
@@ -19,7 +19,7 @@ Pure-Go Tor *client* protocol stack plus a local simulated Tor network. Nothing 
 | Onion services v3 (sim HSDir + intro + rend) | yes, SOCKS `*.onion`; garbage/v2 still fail |
 | Congestion control extra-data + XON/XOFF | yes; SENDME v1 still used |
 | Conflux (prop 329) | yes; LINK/LINKED/SWITCH in sim |
-| C-Tor chutney / public network | optional `chutney` profile; no public network |
+| C-Tor chutney / public network | optional `chutney` profile; `GOTOR_DIR=public` directory bootstrap |
 
 Egress means: the client builds a 1–3 hop circuit and the **exit relay** dials a TCP destination the sim can reach (localhost in unit tests, `172.28.0.0/16` in compose). That is real onion-encrypted relay traffic, not a stub.
 
@@ -41,4 +41,5 @@ make test          # unit + compose integration
 make test-chutney  # opt-in: gotor vs C-Tor relays
 make up            # origin + tornet + SOCKS on localhost:9050
 make down
+GOTOR_DIR=public   # live v3 authority consensus + microdescs (not in default tests)
 ```

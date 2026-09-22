@@ -486,6 +486,18 @@ Do not start unless asked. Multipath linked circuits, RTT switch, sequence numbe
 
 ---
 
+### Public directory bootstrap
+
+- [ ] **Public directory bootstrap** — live v3 authority consensus
+
+**Do:** HTTP to hardcoded v3 DirPorts; fetch `/tor/keys/all` + microdesc consensus; verify majority signatures with authority signing certs; fetch a subset of microdescriptors. `GOTOR_DIR=public`. Default tests stay on the sim.
+
+**Tests:** httptest authority; quorum reject; cert tamper. Live fetch is opt-in, not CI.
+
+**Out of scope:** public onion services, BEGIN_DIR bootstrap over ORPort, fallback-dir list.
+
+---
+
 ## Housekeeping
 
 ### CI
