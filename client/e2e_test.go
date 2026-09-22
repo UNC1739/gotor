@@ -532,7 +532,7 @@ func TestSOCKS5Egress(t *testing.T) {
 	}
 	defer ln.Close()
 	go func() {
-		_ = socks.Serve(ln, func(host string, port uint16) (io.ReadWriteCloser, error) {
+		_ = socks.Serve(ln, func(host string, port uint16, _, _ string) (io.ReadWriteCloser, error) {
 			return circ.Dial(host, port)
 		})
 	}()
@@ -569,6 +569,42 @@ func TestSOCKS5Egress(t *testing.T) {
 	}
 	fmt.Fprintf(c, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
 	readUntil(t, c, "gotor-origin-ok", 10*time.Second)
+}
+
+func TestStreamIsolation(t *testing.T) {
+	c := bootstrap(t)
+	alice, err := c.CircuitFor("alice", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := c.CircuitFor("bob", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.CircuitFor("alice", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	none, err := c.CircuitFor("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice == bob {
+		t.Fatal("different SOCKS auth shared a circuit")
+	}
+	if alice != again {
+		t.Fatal("same SOCKS auth built a second circuit")
+	}
+	if none == alice || none == bob {
+		t.Fatal("no-auth shared an isolated circuit")
+	}
+	st, err := alice.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
 }
 
 func TestTwoHopCircuit(t *testing.T) {

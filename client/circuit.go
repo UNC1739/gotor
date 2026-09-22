@@ -37,6 +37,8 @@ type Circuit struct {
 	ctrl      chan *cell.Relay
 }
 
+func (circ *Circuit) ID() uint32 { return circ.id }
+
 func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	if len(relays) < 1 {
 		return nil, fmt.Errorf("need at least one relay")

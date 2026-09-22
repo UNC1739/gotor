@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-func Serve(ln net.Listener, dial func(host string, port uint16) (io.ReadWriteCloser, error)) error {
+func Serve(ln net.Listener, dial func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error)) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -21,7 +21,7 @@ func Serve(ln net.Listener, dial func(host string, port uint16) (io.ReadWriteClo
 	}
 }
 
-func Handle(c net.Conn, dial func(host string, port uint16) (io.ReadWriteCloser, error)) error {
+func Handle(c net.Conn, dial func(host string, port uint16, user, pass string) (io.ReadWriteCloser, error)) error {
 	var hdr [2]byte
 	if _, err := io.ReadFull(c, hdr[:]); err != nil {
 		return err
@@ -33,7 +33,8 @@ func Handle(c net.Conn, dial func(host string, port uint16) (io.ReadWriteCloser,
 	if _, err := io.ReadFull(c, methods); err != nil {
 		return err
 	}
-	if _, err := c.Write([]byte{5, 0}); err != nil {
+	user, pass, err := negotiateAuth(c, methods)
+	if err != nil {
 		return err
 	}
 	req := make([]byte, 4)
@@ -48,7 +49,7 @@ func Handle(c net.Conn, dial func(host string, port uint16) (io.ReadWriteCloser,
 	if err != nil {
 		return err
 	}
-	rw, err := dial(host, port)
+	rw, err := dial(host, port, user, pass)
 	if err != nil {
 		_, _ = c.Write([]byte{5, 1, 0, 1, 0, 0, 0, 0, 0, 0})
 		return err
@@ -62,6 +63,61 @@ func Handle(c net.Conn, dial func(host string, port uint16) (io.ReadWriteCloser,
 	go func() { _, e := io.Copy(c, rw); errc <- e }()
 	<-errc
 	return nil
+}
+
+func negotiateAuth(c net.Conn, methods []byte) (user, pass string, err error) {
+	want := byte(0)
+	for _, m := range methods {
+		if m == 2 {
+			want = 2
+			break
+		}
+		if m == 0 {
+			want = 0
+		}
+	}
+	if !hasMethod(methods, want) {
+		_, _ = c.Write([]byte{5, 0xff})
+		return "", "", fmt.Errorf("no acceptable socks method")
+	}
+	if _, err := c.Write([]byte{5, want}); err != nil {
+		return "", "", err
+	}
+	if want == 0 {
+		return "", "", nil
+	}
+	var uh [2]byte
+	if _, err := io.ReadFull(c, uh[:]); err != nil {
+		return "", "", err
+	}
+	if uh[0] != 1 {
+		return "", "", fmt.Errorf("bad socks5 auth version")
+	}
+	ub := make([]byte, uh[1])
+	if _, err := io.ReadFull(c, ub); err != nil {
+		return "", "", err
+	}
+	var pl [1]byte
+	if _, err := io.ReadFull(c, pl[:]); err != nil {
+		return "", "", err
+	}
+	pb := make([]byte, pl[0])
+	if _, err := io.ReadFull(c, pb); err != nil {
+		return "", "", err
+	}
+	if _, err := c.Write([]byte{1, 0}); err != nil {
+		return "", "", err
+	}
+	return string(ub), string(pb), nil
+}
+
+func hasMethod(methods []byte, m byte) bool {
+	for _, x := range methods {
+		if x == m {
+			return true
+		}
+	}
+	return false
 }
 
 func readAddr(r io.Reader, atyp byte) (string, uint16, error) {
