@@ -94,11 +94,11 @@ type Relay struct {
 
 	ln net.Listener
 
-	mu        sync.Mutex
-	inbound   map[circKey]*circuit
-	outbound  map[circKey]*circuit
-	serving   map[*proto.Channel]bool
-	usedIDs   map[circKey]struct{}
+	mu       sync.Mutex
+	inbound  map[circKey]*circuit
+	outbound map[circKey]*circuit
+	serving  map[*proto.Channel]bool
+	usedIDs  map[circKey]struct{}
 }
 
 func newRelay(keys *RelayKeys, log *slog.Logger) *Relay {
@@ -186,14 +186,31 @@ func (r *Relay) handleCell(ch *proto.Channel, c *cell.Cell) {
 
 func (r *Relay) onCreate2(ch *proto.Channel, c *cell.Cell) {
 	htype, hdata, err := cell.ParseCreate2(c.Body)
-	if err != nil || htype != gtcrypto.HTypeNtor {
+	if err != nil {
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
 		return
 	}
-	srv := &gtcrypto.NtorServer{ID: r.Keys.Identity, Key: r.Keys.NTor}
-	reply, keys, err := srv.Reply(rand.Reader, hdata)
+	var reply []byte
+	var keys *gtcrypto.CircuitKeys
+	switch htype {
+	case gtcrypto.HTypeNtor:
+		srv := &gtcrypto.NtorServer{ID: r.Keys.Identity, Key: r.Keys.NTor}
+		reply, keys, err = srv.Reply(rand.Reader, hdata)
+	case gtcrypto.HTypeNtorV3:
+		var id [32]byte
+		if len(r.Keys.EdIDPub) != 32 {
+			_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+			return
+		}
+		copy(id[:], r.Keys.EdIDPub)
+		srv := &gtcrypto.NtorV3Server{ID: id, Key: r.Keys.NTor}
+		reply, keys, _, err = srv.Reply(rand.Reader, hdata, nil, []byte(gtcrypto.NtorV3CircuitVerify))
+	default:
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		return
+	}
 	if err != nil {
-		r.log.Debug("ntor failed", "relay", r.Keys.Nickname, "err", err)
+		r.log.Debug("create2 failed", "relay", r.Keys.Nickname, "htype", htype, "err", err)
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
 		return
 	}

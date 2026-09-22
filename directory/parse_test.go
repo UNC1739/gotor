@@ -48,6 +48,33 @@ func TestParseConsensusPAcceptPorts(t *testing.T) {
 }
 
 
+func TestParseProto(t *testing.T) {
+	ident := make([]byte, 20)
+	ident[0] = 1
+	ntor := make([]byte, 32)
+	ed := make([]byte, 32)
+	cons := "network-status-version 3\nvote-status consensus\n" +
+		"r gotor1 " + B64(ident) + " " + B64(ident) + " 2020-01-01 00:00:00 10.0.0.2 9001 0\n" +
+		"s Guard Running Valid Fast\n" +
+		"pr Relay=1-4 Link=1,3\n" +
+		"directory-footer\n"
+	relays, err := ParseConsensus(cons)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !relays[0].Supports("Relay", 4) || relays[0].Supports("Relay", 5) || !relays[0].Supports("Link", 3) {
+		t.Fatalf("%v", relays[0].Proto)
+	}
+	desc := "router gotor1 10.0.0.2 9001 0 0\nfingerprint " + FingerprintHex(relays[0].Identity) +
+		"\nntor-onion-key " + B64(ntor) + "\nmaster-key-ed25519 " + B64(ed) +
+		"\nproto Relay=1-3\n"
+	if err := ParseDescriptors(desc, relays); err != nil {
+		t.Fatal(err)
+	}
+	if relays[0].Supports("Relay", 4) || !relays[0].Supports("Relay", 3) {
+		t.Fatalf("descriptor proto %v", relays[0].Proto)
+	}
+}
 func TestB64RoundTrip(t *testing.T) {
 	in := make([]byte, 20)
 	for i := range in {

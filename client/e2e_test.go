@@ -23,13 +23,13 @@ import (
 )
 
 var (
-	netw       *sim.Network
-	httpURL    *url.URL
-	httpHost   string
-	httpPort   uint16
-	echoAddr   string
-	echoHost   string
-	echoPort   uint16
+	netw     *sim.Network
+	httpURL  *url.URL
+	httpHost string
+	httpPort uint16
+	echoAddr string
+	echoHost string
+	echoPort uint16
 )
 
 func TestMain(m *testing.M) {
@@ -168,6 +168,9 @@ func TestDirectoryBootstrap(t *testing.T) {
 		if r.NTorOnionKey == zero || r.ORPort == 0 {
 			t.Fatalf("unusable relay %+v", r)
 		}
+		if !r.Supports("Relay", 4) || len(r.Ed25519ID) != 32 {
+			t.Fatalf("missing ntor-v3 ads %+v proto=%v", r, r.Proto)
+		}
 		switch {
 		case r.Has("Exit"):
 			sawExit = true
@@ -272,6 +275,27 @@ func TestOneHopHTTPEgress(t *testing.T) {
 
 func TestThreeHopHTTPEgress(t *testing.T) {
 	circ := circuit(t, 3)
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
+func TestMixedNtorV3Path(t *testing.T) {
+	c := bootstrap(t)
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path[1].Proto = map[string][]int{"Relay": {1, 2, 3}}
+	circ, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = circ.Close() })
 	st, err := circ.Dial(httpHost, httpPort)
 	if err != nil {
 		t.Fatal(err)
@@ -431,9 +455,11 @@ func TestSOCKS5Egress(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	go func() { _ = socks.Serve(ln, func(host string, port uint16) (io.ReadWriteCloser, error) {
-		return circ.Dial(host, port)
-	}) }()
+	go func() {
+		_ = socks.Serve(ln, func(host string, port uint16) (io.ReadWriteCloser, error) {
+			return circ.Dial(host, port)
+		})
+	}()
 
 	c, err := net.DialTimeout("tcp", ln.Addr().String(), 5*time.Second)
 	if err != nil {

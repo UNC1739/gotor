@@ -139,6 +139,25 @@ func TestNtorV3ShortInputs(t *testing.T) {
 	}
 }
 
+func TestNtorV3RejectsNtorHandshake(t *testing.T) {
+	serverKey, err := GenerateKeyPair(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id20 [20]byte
+	id20[0] = 1
+	hs, _, err := NtorClientHandshake(rand.Reader, id20, serverKey.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id32 [32]byte
+	copy(id32[:], id20[:])
+	srv := &NtorV3Server{ID: id32, Key: serverKey}
+	if _, _, _, err := srv.Reply(rand.Reader, hs, nil, nil); err == nil {
+		t.Fatal("expected ntor onionskin rejected as ntor-v3")
+	}
+}
+
 func TestNtorV3HopSeal(t *testing.T) {
 	serverKey, err := GenerateKeyPair(rand.Reader)
 	if err != nil {
