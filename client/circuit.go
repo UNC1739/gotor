@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -26,9 +27,11 @@ type Circuit struct {
 	cryptoMu sync.Mutex
 	flowMu   sync.Mutex
 	flowCond *sync.Cond
-	circPack int
-	circDel  int
-	streams  map[uint16]*Stream
+	circPack   int
+	circDel    int
+	packSince  int
+	expectDig  [][]byte
+	streams    map[uint16]*Stream
 	nextSID  uint16
 	waiters  map[uint16]chan *cell.Relay
 	ctrl     chan *cell.Relay
@@ -166,7 +169,7 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 		return
 	}
 	if msg.Command == cell.RelaySendme {
-		circ.creditSendme(msg.StreamID)
+		circ.creditSendme(msg)
 		return
 	}
 	if msg.StreamID == 0 {
@@ -208,23 +211,40 @@ func (circ *Circuit) takePackage(s *Stream) error {
 	return nil
 }
 
-func (circ *Circuit) creditSendme(sid uint16) {
-	circ.flowMu.Lock()
-	if sid == 0 {
-		circ.circPack += cell.CircWindowInc
-	} else {
+func (circ *Circuit) creditSendme(msg *cell.Relay) {
+	if msg.StreamID != 0 {
+		circ.flowMu.Lock()
 		circ.mu.Lock()
-		st := circ.streams[sid]
+		st := circ.streams[msg.StreamID]
 		circ.mu.Unlock()
 		if st != nil {
 			st.pack += cell.StreamWindowInc
 		}
+		circ.flowCond.Broadcast()
+		circ.flowMu.Unlock()
+		return
 	}
+	ver, dig, err := cell.ParseSendme(msg.Data)
+	if err != nil || ver != cell.SendmeV1 || len(dig) < 20 {
+		circ.kill()
+		return
+	}
+	circ.flowMu.Lock()
+	if len(circ.expectDig) == 0 || !bytes.Equal(circ.expectDig[0], dig) {
+		circ.flowMu.Unlock()
+		circ.kill()
+		return
+	}
+	circ.expectDig = circ.expectDig[1:]
+	circ.circPack += cell.CircWindowInc
 	circ.flowCond.Broadcast()
 	circ.flowMu.Unlock()
 }
 
 func (circ *Circuit) noteDeliver(s *Stream) {
+	circ.cryptoMu.Lock()
+	dig := append([]byte(nil), circ.hops[len(circ.hops)-1].BackwardDigest()...)
+	circ.cryptoMu.Unlock()
 	circ.flowMu.Lock()
 	circ.circDel--
 	s.deliv--
@@ -240,12 +260,20 @@ func (circ *Circuit) noteDeliver(s *Stream) {
 	circ.flowMu.Unlock()
 	go func() {
 		if circSM {
-			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme})
+			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme, Data: cell.EncodeSendmeV1(dig)})
 		}
 		if strSM {
 			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme, StreamID: sid})
 		}
 	}()
+}
+
+func (circ *Circuit) kill() {
+	circ.flowMu.Lock()
+	circ.flowCond.Broadcast()
+	circ.flowMu.Unlock()
+	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 1))
+	_ = circ.ch.Close()
 }
 
 func (circ *Circuit) extend(r *directory.Relay) error {
@@ -297,6 +325,16 @@ func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {
 	circ.cryptoMu.Lock()
 	defer circ.cryptoMu.Unlock()
 	crypto.OnionEncrypt(circ.hops, dest, body)
+	if r.Command == cell.RelayData {
+		circ.packSince++
+		if circ.packSince == cell.CircWindowInc {
+			circ.packSince = 0
+			d := append([]byte(nil), circ.hops[dest].ForwardDigest()...)
+			circ.flowMu.Lock()
+			circ.expectDig = append(circ.expectDig, d)
+			circ.flowMu.Unlock()
+		}
+	}
 	return circ.ch.WriteCell(&cell.Cell{CircID: circ.id, Command: linkCmd, Body: body})
 }
 

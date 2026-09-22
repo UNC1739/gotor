@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -82,6 +83,8 @@ type circuit struct {
 	flowCond   *sync.Cond
 	circPack   int
 	circDel    int
+	packSince  int
+	expectDig  [][]byte
 }
 
 type Relay struct {
@@ -279,7 +282,7 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 	case cell.RelayEnd:
 		r.closeStream(ci, msg.StreamID)
 	case cell.RelaySendme:
-		r.creditSendme(ci, msg.StreamID)
+		r.creditSendme(ci, msg.StreamID, msg.Data)
 	default:
 		r.log.Debug("unhandled relay cmd", "cmd", msg.Command, "relay", r.Keys.Nickname)
 	}
@@ -421,23 +424,40 @@ func (ci *circuit) takePack(st *exitStream) bool {
 	return true
 }
 
-func (r *Relay) creditSendme(ci *circuit, sid uint16) {
-	ci.flowMu.Lock()
-	if sid == 0 {
-		ci.circPack += cell.CircWindowInc
-	} else {
+func (r *Relay) creditSendme(ci *circuit, sid uint16, data []byte) {
+	if sid != 0 {
+		ci.flowMu.Lock()
 		r.mu.Lock()
 		st := ci.streams[sid]
 		r.mu.Unlock()
 		if st != nil {
 			st.pack += cell.StreamWindowInc
 		}
+		ci.flowCond.Broadcast()
+		ci.flowMu.Unlock()
+		return
 	}
+	ver, dig, err := cell.ParseSendme(data)
+	if err != nil || ver != cell.SendmeV1 || len(dig) < 20 {
+		r.destroy(ci.prev, ci.prevID, false)
+		return
+	}
+	ci.flowMu.Lock()
+	if len(ci.expectDig) == 0 || !bytes.Equal(ci.expectDig[0], dig) {
+		ci.flowMu.Unlock()
+		r.destroy(ci.prev, ci.prevID, false)
+		return
+	}
+	ci.expectDig = ci.expectDig[1:]
+	ci.circPack += cell.CircWindowInc
 	ci.flowCond.Broadcast()
 	ci.flowMu.Unlock()
 }
 
 func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
+	ci.mu.Lock()
+	dig := append([]byte(nil), ci.hop.ForwardDigest()...)
+	ci.mu.Unlock()
 	ci.flowMu.Lock()
 	ci.circDel--
 	st.deliv--
@@ -451,7 +471,7 @@ func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
 	}
 	ci.flowMu.Unlock()
 	if circSM {
-		r.sendBack(ci, cell.RelaySendme, 0, nil)
+		r.sendBack(ci, cell.RelaySendme, 0, cell.EncodeSendmeV1(dig))
 	}
 	if strSM {
 		r.sendBack(ci, cell.RelaySendme, sid, nil)
@@ -461,9 +481,22 @@ func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
 func (r *Relay) sendBack(ci *circuit, cmd byte, sid uint16, data []byte) {
 	body := cell.EncodeRelay(cell.Relay{Command: cmd, StreamID: sid, Data: data})
 	ci.mu.Lock()
-	defer ci.mu.Unlock()
 	ci.hop.SealBackward(body)
+	var rem []byte
+	if cmd == cell.RelayData {
+		ci.packSince++
+		if ci.packSince == cell.CircWindowInc {
+			ci.packSince = 0
+			rem = append([]byte(nil), ci.hop.BackwardDigest()...)
+		}
+	}
+	if rem != nil {
+		ci.flowMu.Lock()
+		ci.expectDig = append(ci.expectDig, rem)
+		ci.flowMu.Unlock()
+	}
 	_ = ci.prev.WriteCell(&cell.Cell{CircID: ci.prevID, Command: cell.CmdRelay, Body: body})
+	ci.mu.Unlock()
 }
 
 func writeFull(w io.Writer, p []byte) error {

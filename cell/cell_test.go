@@ -134,6 +134,21 @@ func TestRelayEncode(t *testing.T) {
 	}
 }
 
+func TestSendmeV1RoundTrip(t *testing.T) {
+	d := bytes.Repeat([]byte{0x11}, 20)
+	ver, got, err := ParseSendme(EncodeSendmeV1(d))
+	if err != nil || ver != SendmeV1 || !bytes.Equal(got, d) {
+		t.Fatalf("ver=%d got=%x err=%v", ver, got, err)
+	}
+	ver, got, err = ParseSendme(nil)
+	if err != nil || ver != 0 || got != nil {
+		t.Fatalf("v0 ver=%d got=%x err=%v", ver, got, err)
+	}
+	if _, _, err := ParseSendme([]byte{1, 0, 5, 1, 2, 3}); err == nil {
+		t.Fatal("short digest")
+	}
+}
+
 func TestZeroDigest(t *testing.T) {
 	body := EncodeRelay(Relay{Command: RelayData, StreamID: 1, Data: []byte("x")})
 	SetDigest(body, []byte{1, 2, 3, 4})
