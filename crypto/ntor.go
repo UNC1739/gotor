@@ -11,14 +11,15 @@ import (
 )
 
 const (
-	IDLen     = 20
-	GLen      = 32
-	HLen      = 32
-	SHA1Len   = 20
-	AESKeyLen = 16
-	NtorHLen  = 84
-	NtorRLen  = 64
-	HTypeNtor = 0x0002
+	IDLen       = 20
+	GLen        = 32
+	HLen        = 32
+	SHA1Len     = 20
+	AESKeyLen   = 16
+	NtorHLen    = 84
+	NtorRLen    = 64
+	HTypeNtor   = 0x0002
+	HTypeNtorV3 = 0x0003
 
 	protoID = "ntor-curve25519-sha256-1"
 	tMac    = protoID + ":mac"
@@ -166,8 +167,8 @@ func (st *NtorClientState) Finish(reply []byte) (*CircuitKeys, error) {
 }
 
 type NtorServer struct {
-	ID   [20]byte
-	Key  *KeyPair
+	ID  [20]byte
+	Key *KeyPair
 }
 
 func (s *NtorServer) Reply(rand io.Reader, handshake []byte) (reply []byte, keys *CircuitKeys, err error) {
