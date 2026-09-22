@@ -77,6 +77,36 @@ func TestVarLenCerts(t *testing.T) {
 	}
 }
 
+func TestCreateFastCells(t *testing.T) {
+	x := bytes.Repeat([]byte{1}, 20)
+	y := bytes.Repeat([]byte{2}, 20)
+	kh := bytes.Repeat([]byte{3}, 20)
+	var buf bytes.Buffer
+	if err := CreateFast(0x80000003, x).Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	px, err := ParseCreateFast(got.Body)
+	if err != nil || !bytes.Equal(px, x) {
+		t.Fatalf("%v %v", px, err)
+	}
+	buf.Reset()
+	if err := CreatedFast(0x80000003, y, kh).Write(&buf, 4); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Read(&buf, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gy, gkh, err := ParseCreatedFast(got.Body)
+	if err != nil || !bytes.Equal(gy, y) || !bytes.Equal(gkh, kh) {
+		t.Fatalf("%v %v %v", gy, gkh, err)
+	}
+}
+
 func TestDestroy(t *testing.T) {
 	c := Destroy(0x80000002, 6)
 	var buf bytes.Buffer

@@ -167,6 +167,8 @@ func (r *Relay) handleCell(ch *proto.Channel, c *cell.Cell) {
 	switch c.Command {
 	case cell.CmdCreate2:
 		r.onCreate2(ch, c)
+	case cell.CmdCreateFast:
+		r.onCreateFast(ch, c)
 	case cell.CmdCreated2:
 		r.onCreated2(ch, c)
 	case cell.CmdRelay, cell.CmdRelayEarly:
@@ -192,24 +194,51 @@ func (r *Relay) onCreate2(ch *proto.Channel, c *cell.Cell) {
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
 		return
 	}
-	hop, err := gtcrypto.NewHop(keys)
-	if err != nil {
+	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
 		return
+	}
+	if err := ch.WriteCell(cell.Created2(c.CircID, reply)); err != nil {
+		r.destroy(ch, c.CircID, false)
+	}
+}
+
+func (r *Relay) installHop(ch *proto.Channel, circID uint32, keys *gtcrypto.CircuitKeys) (*circuit, error) {
+	hop, err := gtcrypto.NewHop(keys)
+	if err != nil {
+		return nil, err
 	}
 	ci := &circuit{
 		hop:      hop,
 		prev:     ch,
-		prevID:   c.CircID,
+		prevID:   circID,
 		streams:  map[uint16]*exitStream{},
 		circPack: cell.CircWindowStart,
 		circDel:  cell.CircWindowStart,
 	}
 	ci.flowCond = sync.NewCond(&ci.flowMu)
 	r.mu.Lock()
-	r.inbound[circKey{ch, c.CircID}] = ci
+	r.inbound[circKey{ch, circID}] = ci
 	r.mu.Unlock()
-	if err := ch.WriteCell(cell.Created2(c.CircID, reply)); err != nil {
+	return ci, nil
+}
+
+func (r *Relay) onCreateFast(ch *proto.Channel, c *cell.Cell) {
+	x, err := cell.ParseCreateFast(c.Body)
+	if err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		return
+	}
+	y, kh, keys, err := gtcrypto.CreateFastReply(rand.Reader, x)
+	if err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		return
+	}
+	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
+		return
+	}
+	if err := ch.WriteCell(cell.CreatedFast(c.CircID, y, kh)); err != nil {
 		r.destroy(ch, c.CircID, false)
 	}
 }
