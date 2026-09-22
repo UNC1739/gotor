@@ -28,6 +28,18 @@ const (
 	RelayExtend2   = 14
 	RelayExtended2 = 15
 
+	RelayConfluxLink      = 19
+	RelayConfluxLinked    = 20
+	RelayConfluxLinkedAck = 21
+	RelayConfluxSwitch    = 22
+
+	ConfluxVersion1         = 1
+	ConfluxUXNoOpinion      = 0
+	ConfluxUXMinLatency     = 1
+	ConfluxUXLowMemLatency  = 2
+	ConfluxUXHighThroughput = 3
+	ConfluxUXLowMemTput     = 4
+
 	RelayEstablishIntro        = 32
 	RelayEstablishRendezvous   = 33
 	RelayIntroduce1            = 34

@@ -17,12 +17,13 @@ import (
 )
 
 type Circuit struct {
-	ch     *proto.Channel
-	id     uint32
-	hops   []*crypto.Hop
-	relays []*directory.Relay
-	inc    <-chan *cell.Cell
-	hs     bool
+	ch      *proto.Channel
+	id      uint32
+	hops    []*crypto.Hop
+	relays  []*directory.Relay
+	inc     <-chan *cell.Cell
+	hs      bool
+	primary *Circuit
 
 	mu        sync.Mutex
 	cryptoMu  sync.Mutex
@@ -243,10 +244,11 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 		}
 		return
 	}
-	circ.mu.Lock()
-	w := circ.waiters[msg.StreamID]
-	st := circ.streams[msg.StreamID]
-	circ.mu.Unlock()
+	o := circ.owner()
+	o.mu.Lock()
+	w := o.waiters[msg.StreamID]
+	st := o.streams[msg.StreamID]
+	o.mu.Unlock()
 	if msg.Command == cell.RelayData && st != nil {
 		circ.noteDeliver(st)
 	}
@@ -261,7 +263,7 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 	}
 	if st == nil && w == nil && msg.Command == cell.RelayBegin {
 		select {
-		case circ.incoming <- msg:
+		case o.incoming <- msg:
 		default:
 		}
 	}

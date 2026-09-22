@@ -974,3 +974,64 @@ func TestDialOnionRejects(t *testing.T) {
 		t.Fatal("v2 onion accepted")
 	}
 }
+
+func confluxLegs(t *testing.T) (*client.Circuit, *client.Circuit) {
+	t.Helper()
+	c := bootstrap(t)
+	var guard, mid, exit *directory.Relay
+	for _, r := range c.Relays {
+		if !r.Supports("Conflux", 1) {
+			t.Fatalf("missing Conflux=1 %+v", r.Proto)
+		}
+		switch {
+		case r.Has("Exit"):
+			exit = r
+		case r.Has("Guard"):
+			guard = r
+		default:
+			mid = r
+		}
+	}
+	if guard == nil || mid == nil || exit == nil {
+		t.Fatalf("roles g=%v m=%v e=%v", guard, mid, exit)
+	}
+	a, err := c.BuildCircuit([]*directory.Relay{guard, exit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	b, err := c.BuildCircuit([]*directory.Relay{mid, exit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	if err := a.ConfluxLink(b); err != nil {
+		t.Fatal(err)
+	}
+	return a, b
+}
+
+func TestConfluxHTTP(t *testing.T) {
+	a, _ := confluxLegs(t)
+	st, err := a.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
+func TestConfluxSwitchThenHTTP(t *testing.T) {
+	a, b := confluxLegs(t)
+	if err := b.ConfluxSwitch(0); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
