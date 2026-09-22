@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -20,7 +19,15 @@ func main() {
 	socksAddr := env("GOTOR_SOCKS", "0.0.0.0:9050")
 
 	log.Info("bootstrapping", "dir", dir)
-	c, err := client.Bootstrap(dir)
+	var (
+		c   *client.Client
+		err error
+	)
+	if dir == "public" || env("GOTOR_PUBLIC", "") == "1" {
+		c, err = client.BootstrapPublic()
+	} else {
+		c, err = client.Bootstrap(dir)
+	}
 	if err != nil {
 		log.Error("bootstrap failed", "err", err)
 		os.Exit(1)
@@ -29,11 +36,7 @@ func main() {
 		c.Hops = h
 	}
 	c.NoFast = env("GOTOR_CREATE_FAST", "1") == "0"
-	nicks := make([]string, 0, len(c.Relays))
-	for _, r := range c.Relays {
-		nicks = append(nicks, fmt.Sprintf("%s %s:%d exit=%v", r.Nickname, r.Address, r.ORPort, r.Has("Exit")))
-	}
-	log.Info("directory fetched", "relays", len(c.Relays), "hops", c.Hops, "nofast", c.NoFast, "nodes", nicks)
+	log.Info("directory fetched", "relays", len(c.Relays), "hops", c.Hops, "nofast", c.NoFast)
 	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
 		log.Error("socks listen failed", "err", err)

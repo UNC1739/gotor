@@ -35,6 +35,15 @@ func BootstrapMicro(dirAddr string) (*Client, error) {
 	return &Client{DirAddr: dirAddr, Relays: relays, Log: slog.Default()}, nil
 }
 
+func BootstrapPublic() (*Client, error) {
+	relays, err := directory.FetchPublic()
+	if err != nil {
+		return nil, err
+	}
+	return &Client{DirAddr: "public", Relays: relays, Log: slog.Default()}, nil
+}
+
+
 func (c *Client) CircuitFor(user, pass string) (*Circuit, error) {
 	key := user + "\x00" + pass
 	c.mu.Lock()

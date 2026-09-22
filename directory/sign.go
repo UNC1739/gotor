@@ -31,6 +31,17 @@ func wrap64(s string) string {
 	return b.String()
 }
 
+func decodeB64Blob(s string) ([]byte, error) {
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == ' ' || r == '\t' {
+			return -1
+		}
+		return r
+	}, s)
+	return base64.StdEncoding.DecodeString(s)
+}
+
+
 func SignConsensus(body string, key *rsa.PrivateKey) (string, error) {
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"
