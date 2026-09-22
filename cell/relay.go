@@ -4,33 +4,40 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"net"
+	"strconv"
 )
 
 const (
 	RelayHeaderLen = 11
 	MaxRelayData   = BodyLen - RelayHeaderLen
 
-	RelayBegin      = 1
-	RelayData       = 2
-	RelayEnd        = 3
-	RelayConnected  = 4
-	RelaySendme     = 5
-	RelayExtend     = 6
-	RelayExtended   = 7
-	RelayTruncate   = 8
-	RelayTruncated  = 9
-	RelayDrop       = 10
-	RelayResolve    = 11
-	RelayResolved   = 12
-	RelayBeginDir   = 13
-	RelayExtend2    = 14
-	RelayExtended2  = 15
+	RelayBegin     = 1
+	RelayData      = 2
+	RelayEnd       = 3
+	RelayConnected = 4
+	RelaySendme    = 5
+	RelayExtend    = 6
+	RelayExtended  = 7
+	RelayTruncate  = 8
+	RelayTruncated = 9
+	RelayDrop      = 10
+	RelayResolve   = 11
+	RelayResolved  = 12
+	RelayBeginDir  = 13
+	RelayExtend2   = 14
+	RelayExtended2 = 15
 
 	EndReasonDone           = 6
 	EndReasonConnectRefused = 3
 	EndReasonExitPolicy     = 4
 	EndReasonMisc           = 1
+	EndReasonResolveFailed  = 2
 	EndReasonNotDirectory   = 13
+
+	BeginIPv6OK        uint32 = 1 << 0
+	BeginIPv4NotOK     uint32 = 1 << 1
+	BeginIPv6Preferred uint32 = 1 << 2
 )
 
 type Relay struct {
@@ -132,13 +139,24 @@ func ParseSendme(data []byte) (ver byte, digest []byte, err error) {
 }
 
 func BeginPayload(host string, port uint16) []byte {
-	s := fmt.Sprintf("%s:%d", host, port)
-	p := make([]byte, len(s)+1+4)
+	return BeginPayloadFlags(host, port, 0)
+}
+
+func BeginPayloadFlags(host string, port uint16, flags uint32) []byte {
+	s := net.JoinHostPort(host, strconv.Itoa(int(port)))
+	n := len(s) + 1
+	if flags != 0 {
+		n += 4
+	}
+	p := make([]byte, n)
 	copy(p, s)
+	if flags != 0 {
+		binary.BigEndian.PutUint32(p[len(s)+1:], flags)
+	}
 	return p
 }
 
-func ParseBegin(data []byte) (host string, port uint16, err error) {
+func ParseBegin(data []byte) (host string, port uint16, flags uint32, err error) {
 	nul := -1
 	for i, b := range data {
 		if b == 0 {
@@ -148,6 +166,8 @@ func ParseBegin(data []byte) (host string, port uint16, err error) {
 	}
 	if nul < 0 {
 		nul = len(data)
+	} else if nul+1+4 <= len(data) {
+		flags = binary.BigEndian.Uint32(data[nul+1 : nul+5])
 	}
 	addr := string(data[:nul])
 	var h string
@@ -158,22 +178,54 @@ func ParseBegin(data []byte) (host string, port uint16, err error) {
 		if addr[i] == ':' {
 			h = addr[:i]
 			if _, err2 := fmt.Sscanf(addr[i+1:], "%d", &p); err2 != nil {
-				return "", 0, fmt.Errorf("bad BEGIN port")
+				return "", 0, 0, fmt.Errorf("bad BEGIN port")
 			}
 			if p < 0 || p > 65535 {
-				return "", 0, fmt.Errorf("bad BEGIN port")
+				return "", 0, 0, fmt.Errorf("bad BEGIN port")
 			}
-			return h, uint16(p), nil
+			return h, uint16(p), flags, nil
 		}
 	}
-	return "", 0, fmt.Errorf("bad BEGIN address %q: %v", addr, scanErr)
+	return "", 0, 0, fmt.Errorf("bad BEGIN address %q: %v", addr, scanErr)
+}
+
+func SelectBeginAddr(addrs []net.IP, flags uint32) net.IP {
+	var v4, v6 []net.IP
+	for _, a := range addrs {
+		if a == nil {
+			continue
+		}
+		if ip4 := a.To4(); ip4 != nil {
+			v4 = append(v4, ip4)
+			continue
+		}
+		if ip6 := a.To16(); ip6 != nil {
+			v6 = append(v6, ip6)
+		}
+	}
+	if flags&BeginIPv4NotOK != 0 {
+		v4 = nil
+	}
+	if flags&BeginIPv6OK == 0 {
+		v6 = nil
+	}
+	if flags&BeginIPv6Preferred != 0 && len(v6) > 0 {
+		return v6[0]
+	}
+	if len(v4) > 0 {
+		return v4[0]
+	}
+	if len(v6) > 0 {
+		return v6[0]
+	}
+	return nil
 }
 
 const (
-	LSIPv4    = 0x00
+	LSIPv4     = 0x00
 	LSLegacyID = 0x02
-	LSEd25519 = 0x03
-	HTypenTor = 0x0002
+	LSEd25519  = 0x03
+	HTypenTor  = 0x0002
 )
 
 func EncodeExtend2(ipv4 [4]byte, orport uint16, identity [20]byte, edid []byte, htype uint16, hdata []byte) []byte {
@@ -248,7 +300,7 @@ func ParseExtend2(data []byte) (*Extend2, error) {
 		if off+l > len(data) {
 			return nil, fmt.Errorf("short EXTEND2 spec data")
 		}
-		e.Specs = append(e.Specs, LinkSpec{Type: t, Data: append([]byte(nil), data[off : off+l]...)})
+		e.Specs = append(e.Specs, LinkSpec{Type: t, Data: append([]byte(nil), data[off:off+l]...)})
 		off += l
 	}
 	if off+4 > len(data) {
@@ -299,11 +351,11 @@ func ParseExtended2(data []byte) ([]byte, error) {
 }
 
 const (
-	ResolvedHostname      = 0x00
-	ResolvedIPv4          = 0x04
-	ResolvedIPv6          = 0x06
-	ResolvedErrTransient  = 0xf0
-	ResolvedErr           = 0xf1
+	ResolvedHostname     = 0x00
+	ResolvedIPv4         = 0x04
+	ResolvedIPv6         = 0x06
+	ResolvedErrTransient = 0xf0
+	ResolvedErr          = 0xf1
 )
 
 type Resolved struct {
