@@ -37,7 +37,14 @@ const (
 	RelayIntroEstablished      = 38
 	RelayRendezvousEstablished = 39
 	RelayIntroduceAck          = 40
+	RelayPaddingNegotiate      = 41
+	RelayPaddingNegotiated     = 42
 
+	CircPadCommandStop      = 1
+	CircPadCommandStart     = 2
+	CircPadResponseOK       = 1
+	CircPadResponseERR      = 2
+	CircPadMachineCircSetup = 1
 	EndReasonDone           = 6
 	EndReasonConnectRefused = 3
 	EndReasonExitPolicy     = 4
@@ -358,6 +365,63 @@ func EncodeExtended2(hdata []byte) []byte {
 
 func ParseExtended2(data []byte) ([]byte, error) {
 	return ParseCreated2(data)
+}
+
+type PaddingNegotiate struct {
+	Version     byte
+	Command     byte
+	MachineType byte
+	MachineCtr  uint32
+}
+
+type PaddingNegotiated struct {
+	Version     byte
+	Command     byte
+	Response    byte
+	MachineType byte
+	MachineCtr  uint32
+}
+
+func EncodePaddingNegotiate(cmd, machineType byte, ctr uint32) []byte {
+	b := make([]byte, 8)
+	b[1] = cmd
+	b[2] = machineType
+	binary.BigEndian.PutUint32(b[4:], ctr)
+	return b
+}
+
+func ParsePaddingNegotiate(data []byte) (*PaddingNegotiate, error) {
+	if len(data) < 8 {
+		return nil, fmt.Errorf("short PADDING_NEGOTIATE")
+	}
+	return &PaddingNegotiate{
+		Version:     data[0],
+		Command:     data[1],
+		MachineType: data[2],
+		MachineCtr:  binary.BigEndian.Uint32(data[4:8]),
+	}, nil
+}
+
+func EncodePaddingNegotiated(cmd, response, machineType byte, ctr uint32) []byte {
+	b := make([]byte, 8)
+	b[1] = cmd
+	b[2] = response
+	b[3] = machineType
+	binary.BigEndian.PutUint32(b[4:], ctr)
+	return b
+}
+
+func ParsePaddingNegotiated(data []byte) (*PaddingNegotiated, error) {
+	if len(data) < 8 {
+		return nil, fmt.Errorf("short PADDING_NEGOTIATED")
+	}
+	return &PaddingNegotiated{
+		Version:     data[0],
+		Command:     data[1],
+		Response:    data[2],
+		MachineType: data[3],
+		MachineCtr:  binary.BigEndian.Uint32(data[4:8]),
+	}, nil
 }
 
 const (

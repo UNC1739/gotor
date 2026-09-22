@@ -306,6 +306,20 @@ func TestParseSendmeV1TrailingAndV2(t *testing.T) {
 }
 
 
+func TestPaddingNegotiateRoundTrip(t *testing.T) {
+	raw := EncodePaddingNegotiate(CircPadCommandStart, CircPadMachineCircSetup, 7)
+	n, err := ParsePaddingNegotiate(raw)
+	if err != nil || n.Version != 0 || n.Command != CircPadCommandStart || n.MachineType != CircPadMachineCircSetup || n.MachineCtr != 7 {
+		t.Fatalf("%+v %v", n, err)
+	}
+	got, err := ParsePaddingNegotiated(EncodePaddingNegotiated(CircPadCommandStart, CircPadResponseERR, CircPadMachineCircSetup, 7))
+	if err != nil || got.Response != CircPadResponseERR || got.Command != CircPadCommandStart || got.MachineCtr != 7 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if _, err := ParsePaddingNegotiate([]byte{0, 1, 1}); err == nil {
+		t.Fatal("short negotiate")
+	}
+}
 func TestResolveRoundTrip(t *testing.T) {
 	if ParseResolve(EncodeResolve("example.com")) != "example.com" {
 		t.Fatal("hostname")
@@ -753,7 +767,8 @@ func TestParseExtended2(t *testing.T) {
 	}
 }
 
-func TestPaddingNegotiateRoundTrip(t *testing.T) {
+func TestPaddingNegotiateFixedLength(t *testing.T) {
+
 	c := &Cell{Command: CmdPaddingNegotiate, Body: []byte{0, 0, 0}}
 	if IsVarLen(CmdPaddingNegotiate) {
 		t.Fatal("PADDING_NEGOTIATE is fixed")

@@ -341,6 +341,24 @@ func TestPaddingThenHTTP(t *testing.T) {
 	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
 }
 
+func TestPaddingNegotiateThenHTTP(t *testing.T) {
+	circ := circuit(t, 3)
+	got, err := circ.NegotiatePadding(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Response != cell.CircPadResponseERR {
+		t.Fatalf("response %d", got.Response)
+	}
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
 func TestOneHopHTTPEgress(t *testing.T) {
 	circ := circuit(t, 1)
 	st, err := circ.Dial(httpHost, httpPort)
