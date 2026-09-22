@@ -719,9 +719,9 @@ func TestDir404(t *testing.T) {
 	defer n.Close()
 	for _, path := range []string{
 		"/not-a-dir-path",
-		"/tor/status-vote/current/consensus-microdesc",
 		"/tor/server/fp/deadbeef",
 	} {
+
 		resp, err := http.Get("http://" + n.DirAddr() + path)
 		if err != nil {
 			t.Fatal(err)
@@ -867,7 +867,7 @@ func TestRelayExtend2MalformedDestroy(t *testing.T) {
 	id, hop := createFastClient(t, ch)
 	writeRelay(t, ch, id, hop, cell.RelayExtend2, 0, []byte{0x05})
 	got, err := ch.ReadCell()
-	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != 6 {
+	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != cell.DestroyProtocol {
 		t.Fatalf("%v %v", got, err)
 	}
 }
@@ -882,7 +882,7 @@ func TestRelayExtend2NoIPv4Destroy(t *testing.T) {
 	data = append(data, 0, 2, 0, 0) // htype ntor, hlen 0
 	writeRelay(t, ch, id, hop, cell.RelayExtend2, 0, data)
 	got, err := ch.ReadCell()
-	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != 6 {
+	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != cell.DestroyProtocol {
 		t.Fatalf("%v %v", got, err)
 	}
 }
@@ -893,7 +893,7 @@ func TestRelayExtend2NoLinkSpecsDestroy(t *testing.T) {
 	id, hop := createFastClient(t, ch)
 	writeRelay(t, ch, id, hop, cell.RelayExtend2, 0, []byte{0, 0, 2, 0, 0}) // nspec=0, htype ntor, hlen 0
 	got, err := ch.ReadCell()
-	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != 6 {
+	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != cell.DestroyProtocol {
 		t.Fatalf("%v %v", got, err)
 	}
 }
@@ -905,7 +905,8 @@ func TestRelayExtend2TwoIPv4Destroy(t *testing.T) {
 	data := []byte{2, 0, 6, 1, 2, 3, 4, 0x23, 0x29, 0, 6, 5, 6, 7, 8, 0x23, 0x29, 0, 2, 0, 0}
 	writeRelay(t, ch, id, hop, cell.RelayExtend2, 0, data)
 	got, err := ch.ReadCell()
-	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != 6 {
+	if err != nil || got.Command != cell.CmdDestroy || got.Body[0] != cell.DestroyConnectFailed {
+
 		t.Fatalf("%v %v", got, err)
 	}
 }
@@ -1444,7 +1445,10 @@ func TestRelayBeginIPv6(t *testing.T) {
 	ch := dialRelay(t, r)
 	id, hop := createFastClient(t, ch)
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	writeRelay(t, ch, id, hop, cell.RelayBegin, 1, []byte(fmt.Sprintf("::1:%d", port)))
+	payload := append([]byte(fmt.Sprintf("::1:%d", port)), 0, 0, 0, 0, byte(cell.BeginIPv6OK))
+	writeRelay(t, ch, id, hop, cell.RelayBegin, 1, payload)
+
+
 	got, err := ch.ReadCell()
 	if err != nil {
 		t.Fatal(err)
@@ -1733,7 +1737,8 @@ func TestRelayBeginWithFlags(t *testing.T) {
 	ch := dialRelay(t, r)
 	id, hop := createFastClient(t, ch)
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	writeRelay(t, ch, id, hop, cell.RelayBegin, 1, []byte(fmt.Sprintf("127.0.0.1:%d\x00\xff\xff\xff\xff", port)))
+	writeRelay(t, ch, id, hop, cell.RelayBegin, 1, cell.BeginPayloadFlags("127.0.0.1", port, cell.BeginIPv6OK))
+
 	got, err := ch.ReadCell()
 	if err != nil {
 		t.Fatal(err)

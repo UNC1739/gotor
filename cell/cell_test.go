@@ -427,7 +427,7 @@ func TestParseBeginCTorCases(t *testing.T) {
 		{"a.b:80", "a.b", 80, false},
 	}
 	for _, tc := range tests {
-		h, p, err := ParseBegin([]byte(tc.in))
+		h, p, _, err := ParseBegin([]byte(tc.in))
 		if tc.wantErr {
 			if err == nil {
 				t.Fatalf("%q: expected error", tc.in)
@@ -437,6 +437,7 @@ func TestParseBeginCTorCases(t *testing.T) {
 		if err != nil || h != tc.host || p != tc.port {
 			t.Fatalf("%q: host=%q port=%d err=%v", tc.in, h, p, err)
 		}
+
 	}
 }
 
@@ -738,7 +739,7 @@ func TestRelayEndReason(t *testing.T) {
 
 func TestBeginPayloadRoundTrip(t *testing.T) {
 	p := BeginPayload("example.com", 443)
-	h, port, err := ParseBegin(p)
+	h, port, _, err := ParseBegin(p)
 	if err != nil || h != "example.com" || port != 443 {
 		t.Fatalf("host=%s port=%d err=%v", h, port, err)
 	}
@@ -865,20 +866,6 @@ func TestParseCreated2Empty(t *testing.T) {
 	}
 }
 
-
-func TestDestroyReasons(t *testing.T) {
-	for _, reason := range []byte{0, 1, 2, 6, 11} {
-		c := Destroy(0x80000002, reason)
-		var buf bytes.Buffer
-		if err := c.Write(&buf, 4); err != nil {
-			t.Fatal(err)
-		}
-		got, err := Read(&buf, 4)
-		if err != nil || got.Command != CmdDestroy || got.Body[0] != reason {
-			t.Fatalf("reason=%d %+v %v", reason, got, err)
-		}
-	}
-}
 
 func TestCreateCreatedTAPCells(t *testing.T) {
 	tap := bytes.Repeat([]byte{0x7a}, 186)

@@ -193,7 +193,10 @@ func (circ *Circuit) fail(err error) {
 		return
 	}
 	circ.dead = err
-	close(circ.done)
+	if circ.done != nil {
+		close(circ.done)
+	}
+
 	for _, s := range circ.streams {
 		s.mu.Lock()
 		if s.err == nil {

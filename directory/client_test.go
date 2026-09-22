@@ -1,6 +1,8 @@
 package directory
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"io"
 	"net"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 )
+
 
 func TestHTTPGetOK(t *testing.T) {
 	client, server := net.Pipe()
@@ -56,16 +59,29 @@ func TestFetchUsableRelays(t *testing.T) {
 	copy(id[:], ident)
 	cons := "network-status-version 3\n" +
 		"r gotor1 " + B64(ident) + " " + B64(ident) + " 2020-01-01 00:00:00 10.0.0.2 9001 0\n" +
-		"s Guard Running Valid Fast\n"
+		"s Guard Running Valid Fast\n" +
+		"directory-footer\n"
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := SignConsensus(cons, key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	desc := "router gotor1 10.0.0.2 9001 0 0\nfingerprint " + FingerprintHex(id) +
 		"\nntor-onion-key " + B64(ntor) + "\nmaster-key-ed25519 " + B64(ed) + "\naccept *:*\n"
 	mux := http.NewServeMux()
+	mux.HandleFunc("/tor/keys/authority", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(EncodeAuthorityKey(&key.PublicKey))
+	})
 	mux.HandleFunc("/tor/status-vote/current/consensus", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, cons)
+		_, _ = io.WriteString(w, signed)
 	})
 	mux.HandleFunc("/tor/server/all", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, desc)
 	})
+
 	s := httptest.NewServer(mux)
 	defer s.Close()
 	u, err := url.Parse(s.URL)
