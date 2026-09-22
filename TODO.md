@@ -4,16 +4,6 @@ One PR per checkbox. Stay on the local Docker sim unless the item says otherwise
 
 Honest scope: a client-shaped subset (cells, ntor, onion layers, SOCKS5, SENDME). No v3 onion services and no C-Tor interop until those items. Do not volunteer extras (tighter windows, extra handshake, public-network code).
 
-Open implementations waiting to merge (do not re-do; merge then check):
-
-| Item | PR |
-|---|---|
-| CREATE_FAST | https://github.com/UNC1739/gotor/pull/1 |
-| BEGIN_DIR | https://github.com/UNC1739/gotor/pull/2 |
-| RELAY_RESOLVE / RELAY_RESOLVED | https://github.com/UNC1739/gotor/pull/3 |
-| PADDING / VPADDING / RELAY_DROP | https://github.com/UNC1739/gotor/pull/4 |
-| SENDME v1 | https://github.com/UNC1739/gotor/pull/5 |
-
 ---
 
 ## Done (on `main`)
@@ -25,25 +15,31 @@ Open implementations waiting to merge (do not re-do; merge then check):
 - [x] SOCKS5
 - [x] Simulated 3-relay network
 - [x] SENDME v0 (circ 1000/100, stream 500/50)
+- [x] CREATE_FAST (#1) — 1-hop circuits use CREATE_FAST/KDF-TOR; multi-hop still ntor
+- [x] BEGIN_DIR (#2) — `Circuit.DialDir` + sim DirPort splice
+- [x] RELAY_RESOLVE / RELAY_RESOLVED (#3) — `Circuit.Resolve`
+- [x] PADDING / VPADDING / RELAY_DROP (#4)
+- [x] SENDME v1 (#5) — authenticated circuit SENDMEs (rolling digest)
 
-Current `main` behavior to treat as the baseline:
+Current `main` baseline:
 
-- Client bootstrap is plaintext HTTP to the sim DirPort (`directory.Fetch`).
-- Circuits are ntor CREATE2 + ntor EXTEND2, 1–3 hops. `PickPath` takes `pool[0]` per role.
+- Bootstrap is still plaintext HTTP to the sim DirPort (`directory.Fetch`). BEGIN_DIR can fetch the same docs over a circuit.
+- 1-hop: CREATE_FAST. 2–3 hop: ntor CREATE2 + ntor EXTEND2. `PickPath` takes `pool[0]` per role.
 - Link handshake is VERSIONS + CERTS (ed25519 types 4/5) + AUTH_CHALLENGE (ignored by initiator) + NETINFO. No AUTHENTICATE. No RSA CERTS 2/7.
 - BEGIN payload is `host:port\0` plus four zero flag bytes.
 - DESTROY reasons are hardcoded (1/2/6/11). TRUNCATE unused.
+- Circuit SENDME is v1 (20-byte digest); stream SENDME is empty.
 - `.onion` → `ErrOnion`. Consensus `directory-*` lines skipped. No bandwidth weights, no microdescs, no signatures.
 
 ---
 
 ## Protocol (sim-first)
 
-Each item: spec refs, what exists, what to build, tests, out of scope.
+Each remaining item: spec refs, what exists, what to build, tests, out of scope. Merged items above are not re-opened.
 
 ### CREATE_FAST
 
-- [ ] **CREATE_FAST** — one-hop circuits without ntor (dir fetch / bootstrap)
+- [x] **CREATE_FAST** — one-hop circuits without ntor (dir fetch / bootstrap)
 
 **Spec:** [CREATE_FAST](https://spec.torproject.org/tor-spec/create-created-cells.html#create_fast). Cells 5/6. Handshake: client 20-byte X, relay 20-byte Y + KH. Keys via KDF-TOR (`K = g^x` analogue is `KDF-TOR(X | Y)` → KH, Df, Db, Kf, Kb). CircID rules unchanged.
 
@@ -65,7 +61,7 @@ Each item: spec refs, what exists, what to build, tests, out of scope.
 
 ### BEGIN_DIR
 
-- [ ] **BEGIN_DIR** — directory HTTP over a circuit, not plaintext DirPort
+- [x] **BEGIN_DIR** — directory HTTP over a circuit, not plaintext DirPort
 
 **Spec:** [Opening a directory stream](https://spec.torproject.org/tor-spec/opening-streams.html#opening-a-directory-stream). RELAY_BEGIN_DIR (cmd 13), empty body, nonzero StreamID. CONNECTED has empty body (no addr). END reason 13 = not a directory.
 
@@ -86,7 +82,7 @@ Each item: spec refs, what exists, what to build, tests, out of scope.
 
 ### RELAY_RESOLVE / RELAY_RESOLVED
 
-- [ ] **RELAY_RESOLVE / RELAY_RESOLVED** — SOCKS DNS via the exit
+- [x] **RELAY_RESOLVE / RELAY_RESOLVED** — SOCKS DNS via the exit
 
 **Spec:** [Remote hostname lookup](https://spec.torproject.org/tor-spec/remote-hostname-lookup.html). RESOLVE: hostname + NUL, nonzero distinct StreamID, no stream created. RESOLVED: repeating `(Type u8, Len u8, Value, TTL u32be)`. Types: 0x00 hostname, 0x04 IPv4, 0x06 IPv6, 0xF0 transient error, 0xF1 nontransient. Any error type ⇒ no other answers. IPv4 answers first if any.
 
@@ -107,7 +103,7 @@ Each item: spec refs, what exists, what to build, tests, out of scope.
 
 ### PADDING / VPADDING / RELAY_DROP
 
-- [ ] **PADDING / VPADDING / RELAY_DROP** — link + long-range padding cells
+- [x] **PADDING / VPADDING / RELAY_DROP** — link + long-range padding cells
 
 **Spec:** [Link padding](https://spec.torproject.org/tor-spec/flow-control.html#link-padding), cell commands 0 / 128, relay DROP cmd 10. CircID 0 for PADDING/VPADDING. DROP is a recognized relay message; body ignored; does not affect SENDME windows.
 
@@ -128,7 +124,7 @@ Each item: spec refs, what exists, what to build, tests, out of scope.
 
 ### SENDME v1
 
-- [ ] **SENDME v1** — authenticated circuit SENDMEs (rolling digest)
+- [x] **SENDME v1** — authenticated circuit SENDMEs (rolling digest)
 
 **Spec:** [SENDME message format](https://spec.torproject.org/tor-spec/flow-control.html#sendme-message-format). Circuit SENDME StreamID=0. Body: VERSION 1, DATA_LEN 20, DIGEST 20 (SHA-1 running digest after the DATA cell that hit a multiple of 100). Mismatch ⇒ DESTROY. Stream SENDMEs stay empty.
 
@@ -514,5 +510,4 @@ Update the status table when merging protocol PRs (CREATE_FAST, BEGIN_DIR, SENDM
 
 - New branch from `main`, one checkbox, Docker tests, commit, `gh pr create`.
 - Hold hop crypto seal+write on one mutex. Exit DATA toward origin must not block the cell read loop (per-stream write queue).
-- CREATE_FAST / BEGIN_DIR / RESOLVE / PADDING / SENDME v1 already have PRs — merge those before starting ntor-v3 unless the PR is rejected.
-- Next unstarted protocol item after those merges: **ntor-v3**.
+- Next protocol item: **ntor-v3**.

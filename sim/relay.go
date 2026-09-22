@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -82,11 +83,14 @@ type circuit struct {
 	flowCond   *sync.Cond
 	circPack   int
 	circDel    int
+	packSince  int
+	expectDig  [][]byte
 }
 
 type Relay struct {
-	Keys *RelayKeys
-	log  *slog.Logger
+	Keys    *RelayKeys
+	DirAddr string
+	log     *slog.Logger
 
 	ln net.Listener
 
@@ -166,6 +170,8 @@ func (r *Relay) handleCell(ch *proto.Channel, c *cell.Cell) {
 	switch c.Command {
 	case cell.CmdCreate2:
 		r.onCreate2(ch, c)
+	case cell.CmdCreateFast:
+		r.onCreateFast(ch, c)
 	case cell.CmdCreated2:
 		r.onCreated2(ch, c)
 	case cell.CmdRelay, cell.CmdRelayEarly:
@@ -191,24 +197,51 @@ func (r *Relay) onCreate2(ch *proto.Channel, c *cell.Cell) {
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
 		return
 	}
-	hop, err := gtcrypto.NewHop(keys)
-	if err != nil {
+	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
 		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
 		return
+	}
+	if err := ch.WriteCell(cell.Created2(c.CircID, reply)); err != nil {
+		r.destroy(ch, c.CircID, false)
+	}
+}
+
+func (r *Relay) installHop(ch *proto.Channel, circID uint32, keys *gtcrypto.CircuitKeys) (*circuit, error) {
+	hop, err := gtcrypto.NewHop(keys)
+	if err != nil {
+		return nil, err
 	}
 	ci := &circuit{
 		hop:      hop,
 		prev:     ch,
-		prevID:   c.CircID,
+		prevID:   circID,
 		streams:  map[uint16]*exitStream{},
 		circPack: cell.CircWindowStart,
 		circDel:  cell.CircWindowStart,
 	}
 	ci.flowCond = sync.NewCond(&ci.flowMu)
 	r.mu.Lock()
-	r.inbound[circKey{ch, c.CircID}] = ci
+	r.inbound[circKey{ch, circID}] = ci
 	r.mu.Unlock()
-	if err := ch.WriteCell(cell.Created2(c.CircID, reply)); err != nil {
+	return ci, nil
+}
+
+func (r *Relay) onCreateFast(ch *proto.Channel, c *cell.Cell) {
+	x, err := cell.ParseCreateFast(c.Body)
+	if err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		return
+	}
+	y, kh, keys, err := gtcrypto.CreateFastReply(rand.Reader, x)
+	if err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 1))
+		return
+	}
+	if _, err := r.installHop(ch, c.CircID, keys); err != nil {
+		_ = ch.WriteCell(cell.Destroy(c.CircID, 2))
+		return
+	}
+	if err := ch.WriteCell(cell.CreatedFast(c.CircID, y, kh)); err != nil {
 		r.destroy(ch, c.CircID, false)
 	}
 }
@@ -268,6 +301,10 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		go r.doExtend(ci, msg)
 	case cell.RelayBegin:
 		go r.doBegin(ci, msg)
+	case cell.RelayBeginDir:
+		go r.doBeginDir(ci, msg)
+	case cell.RelayResolve:
+		go r.doResolve(ci, msg)
 	case cell.RelayData:
 		r.mu.Lock()
 		st := ci.streams[msg.StreamID]
@@ -279,7 +316,8 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 	case cell.RelayEnd:
 		r.closeStream(ci, msg.StreamID)
 	case cell.RelaySendme:
-		r.creditSendme(ci, msg.StreamID)
+		r.creditSendme(ci, msg.StreamID, msg.Data)
+	case cell.RelayDrop:
 	default:
 		r.log.Debug("unhandled relay cmd", "cmd", msg.Command, "relay", r.Keys.Nickname)
 	}
@@ -369,6 +407,34 @@ func (r *Relay) ensureServe(ch *proto.Channel) {
 	go r.serveChannel(ch)
 }
 
+func (r *Relay) doResolve(ci *circuit, msg *cell.Relay) {
+	host := cell.ParseResolve(msg.Data)
+	addrs, err := net.LookupIP(host)
+	if err != nil || len(addrs) == 0 {
+		r.sendBack(ci, cell.RelayResolved, msg.StreamID, cell.EncodeResolved([]cell.Resolved{{
+			Type:  cell.ResolvedErr,
+			Value: []byte("Error resolving hostname"),
+			TTL:   0,
+		}}))
+		return
+	}
+	var ans []cell.Resolved
+	for _, ip := range addrs {
+		if v4 := ip.To4(); v4 != nil {
+			ans = append([]cell.Resolved{{Type: cell.ResolvedIPv4, Value: append([]byte(nil), v4...), TTL: 60}}, ans...)
+		}
+	}
+	for _, ip := range addrs {
+		if v4 := ip.To4(); v4 == nil {
+			v6 := ip.To16()
+			if v6 != nil {
+				ans = append(ans, cell.Resolved{Type: cell.ResolvedIPv6, Value: append([]byte(nil), v6...), TTL: 60})
+			}
+		}
+	}
+	r.sendBack(ci, cell.RelayResolved, msg.StreamID, cell.EncodeResolved(ans))
+}
+
 func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 	sendEnd := func(reason byte) {
 		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{reason})
@@ -384,13 +450,30 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 		sendEnd(cell.EndReasonConnectRefused)
 		return
 	}
+	r.spliceExit(ci, msg, conn, make([]byte, 8))
+}
+
+func (r *Relay) doBeginDir(ci *circuit, msg *cell.Relay) {
+	if r.DirAddr == "" {
+		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonNotDirectory})
+		return
+	}
+	conn, err := net.DialTimeout("tcp", r.DirAddr, 10*time.Second)
+	if err != nil {
+		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonNotDirectory})
+		return
+	}
+	r.spliceExit(ci, msg, conn, nil)
+}
+
+func (r *Relay) spliceExit(ci *circuit, msg *cell.Relay, conn net.Conn, connected []byte) {
 	st := &exitStream{conn: conn, pack: cell.StreamWindowStart, deliv: cell.StreamWindowStart}
 	st.wrCond = sync.NewCond(&st.wrMu)
 	r.mu.Lock()
 	ci.streams[msg.StreamID] = st
 	r.mu.Unlock()
 	go st.writeLoop()
-	r.sendBack(ci, cell.RelayConnected, msg.StreamID, make([]byte, 8))
+	r.sendBack(ci, cell.RelayConnected, msg.StreamID, connected)
 	go func() {
 		buf := make([]byte, cell.MaxRelayData)
 		for {
@@ -402,7 +485,7 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 				r.sendBack(ci, cell.RelayData, msg.StreamID, buf[:n])
 			}
 			if err != nil {
-				sendEnd(cell.EndReasonDone)
+				r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonDone})
 				r.closeStream(ci, msg.StreamID)
 				return
 			}
@@ -421,23 +504,40 @@ func (ci *circuit) takePack(st *exitStream) bool {
 	return true
 }
 
-func (r *Relay) creditSendme(ci *circuit, sid uint16) {
-	ci.flowMu.Lock()
-	if sid == 0 {
-		ci.circPack += cell.CircWindowInc
-	} else {
+func (r *Relay) creditSendme(ci *circuit, sid uint16, data []byte) {
+	if sid != 0 {
+		ci.flowMu.Lock()
 		r.mu.Lock()
 		st := ci.streams[sid]
 		r.mu.Unlock()
 		if st != nil {
 			st.pack += cell.StreamWindowInc
 		}
+		ci.flowCond.Broadcast()
+		ci.flowMu.Unlock()
+		return
 	}
+	ver, dig, err := cell.ParseSendme(data)
+	if err != nil || ver != cell.SendmeV1 || len(dig) < 20 {
+		r.destroy(ci.prev, ci.prevID, false)
+		return
+	}
+	ci.flowMu.Lock()
+	if len(ci.expectDig) == 0 || !bytes.Equal(ci.expectDig[0], dig) {
+		ci.flowMu.Unlock()
+		r.destroy(ci.prev, ci.prevID, false)
+		return
+	}
+	ci.expectDig = ci.expectDig[1:]
+	ci.circPack += cell.CircWindowInc
 	ci.flowCond.Broadcast()
 	ci.flowMu.Unlock()
 }
 
 func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
+	ci.mu.Lock()
+	dig := append([]byte(nil), ci.hop.ForwardDigest()...)
+	ci.mu.Unlock()
 	ci.flowMu.Lock()
 	ci.circDel--
 	st.deliv--
@@ -451,7 +551,7 @@ func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
 	}
 	ci.flowMu.Unlock()
 	if circSM {
-		r.sendBack(ci, cell.RelaySendme, 0, nil)
+		r.sendBack(ci, cell.RelaySendme, 0, cell.EncodeSendmeV1(dig))
 	}
 	if strSM {
 		r.sendBack(ci, cell.RelaySendme, sid, nil)
@@ -461,9 +561,22 @@ func (r *Relay) noteDeliver(ci *circuit, st *exitStream, sid uint16) {
 func (r *Relay) sendBack(ci *circuit, cmd byte, sid uint16, data []byte) {
 	body := cell.EncodeRelay(cell.Relay{Command: cmd, StreamID: sid, Data: data})
 	ci.mu.Lock()
-	defer ci.mu.Unlock()
 	ci.hop.SealBackward(body)
+	var rem []byte
+	if cmd == cell.RelayData {
+		ci.packSince++
+		if ci.packSince == cell.CircWindowInc {
+			ci.packSince = 0
+			rem = append([]byte(nil), ci.hop.BackwardDigest()...)
+		}
+	}
+	if rem != nil {
+		ci.flowMu.Lock()
+		ci.expectDig = append(ci.expectDig, rem)
+		ci.flowMu.Unlock()
+	}
 	_ = ci.prev.WriteCell(&cell.Cell{CircID: ci.prevID, Command: cell.CmdRelay, Body: body})
+	ci.mu.Unlock()
 }
 
 func writeFull(w io.Writer, p []byte) error {

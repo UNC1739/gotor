@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -26,9 +27,11 @@ type Circuit struct {
 	cryptoMu sync.Mutex
 	flowMu   sync.Mutex
 	flowCond *sync.Cond
-	circPack int
-	circDel  int
-	streams  map[uint16]*Stream
+	circPack   int
+	circDel    int
+	packSince  int
+	expectDig  [][]byte
+	streams    map[uint16]*Stream
 	nextSID  uint16
 	waiters  map[uint16]chan *cell.Relay
 	ctrl     chan *cell.Relay
@@ -71,36 +74,10 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 	}
 	circ.flowCond = sync.NewCond(&circ.flowMu)
 
-	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
-	if err != nil {
+	if err := circ.createFirstHop(guard, len(relays) == 1); err != nil {
 		ch.Close()
 		return nil, err
 	}
-	if err := ch.WriteCell(cell.Create2(circID, crypto.HTypeNtor, hs)); err != nil {
-		ch.Close()
-		return nil, err
-	}
-	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hdata, err := cell.ParseCreated2(created.Body)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	keys, err := st.Finish(hdata)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	hop, err := crypto.NewHop(keys)
-	if err != nil {
-		ch.Close()
-		return nil, err
-	}
-	circ.hops = append(circ.hops, hop)
 	go circ.dispatch()
 
 	for i := 1; i < len(relays); i++ {
@@ -110,6 +87,61 @@ func (c *Client) BuildCircuit(relays []*directory.Relay) (*Circuit, error) {
 		}
 	}
 	return circ, nil
+}
+
+func (circ *Circuit) createFirstHop(guard *directory.Relay, fast bool) error {
+	if fast {
+		x, err := crypto.CreateFastHandshake(rand.Reader)
+		if err != nil {
+			return err
+		}
+		if err := circ.ch.WriteCell(cell.CreateFast(circ.id, x)); err != nil {
+			return err
+		}
+		created, err := circ.waitLink(cell.CmdCreatedFast, 10*time.Second)
+		if err != nil {
+			return err
+		}
+		y, kh, err := cell.ParseCreatedFast(created.Body)
+		if err != nil {
+			return err
+		}
+		keys, err := crypto.CreateFastFinish(x, y, kh)
+		if err != nil {
+			return err
+		}
+		hop, err := crypto.NewHop(keys)
+		if err != nil {
+			return err
+		}
+		circ.hops = append(circ.hops, hop)
+		return nil
+	}
+	hs, st, err := crypto.NtorClientHandshake(rand.Reader, guard.Identity, guard.NTorOnionKey)
+	if err != nil {
+		return err
+	}
+	if err := circ.ch.WriteCell(cell.Create2(circ.id, crypto.HTypeNtor, hs)); err != nil {
+		return err
+	}
+	created, err := circ.waitLink(cell.CmdCreated2, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	hdata, err := cell.ParseCreated2(created.Body)
+	if err != nil {
+		return err
+	}
+	keys, err := st.Finish(hdata)
+	if err != nil {
+		return err
+	}
+	hop, err := crypto.NewHop(keys)
+	if err != nil {
+		return err
+	}
+	circ.hops = append(circ.hops, hop)
+	return nil
 }
 
 func (circ *Circuit) waitLink(cmd byte, d time.Duration) (*cell.Cell, error) {
@@ -166,7 +198,10 @@ func (circ *Circuit) handleRelay(c *cell.Cell) {
 		return
 	}
 	if msg.Command == cell.RelaySendme {
-		circ.creditSendme(msg.StreamID)
+		circ.creditSendme(msg)
+		return
+	}
+	if msg.Command == cell.RelayDrop {
 		return
 	}
 	if msg.StreamID == 0 {
@@ -208,23 +243,40 @@ func (circ *Circuit) takePackage(s *Stream) error {
 	return nil
 }
 
-func (circ *Circuit) creditSendme(sid uint16) {
-	circ.flowMu.Lock()
-	if sid == 0 {
-		circ.circPack += cell.CircWindowInc
-	} else {
+func (circ *Circuit) creditSendme(msg *cell.Relay) {
+	if msg.StreamID != 0 {
+		circ.flowMu.Lock()
 		circ.mu.Lock()
-		st := circ.streams[sid]
+		st := circ.streams[msg.StreamID]
 		circ.mu.Unlock()
 		if st != nil {
 			st.pack += cell.StreamWindowInc
 		}
+		circ.flowCond.Broadcast()
+		circ.flowMu.Unlock()
+		return
 	}
+	ver, dig, err := cell.ParseSendme(msg.Data)
+	if err != nil || ver != cell.SendmeV1 || len(dig) < 20 {
+		circ.kill()
+		return
+	}
+	circ.flowMu.Lock()
+	if len(circ.expectDig) == 0 || !bytes.Equal(circ.expectDig[0], dig) {
+		circ.flowMu.Unlock()
+		circ.kill()
+		return
+	}
+	circ.expectDig = circ.expectDig[1:]
+	circ.circPack += cell.CircWindowInc
 	circ.flowCond.Broadcast()
 	circ.flowMu.Unlock()
 }
 
 func (circ *Circuit) noteDeliver(s *Stream) {
+	circ.cryptoMu.Lock()
+	dig := append([]byte(nil), circ.hops[len(circ.hops)-1].BackwardDigest()...)
+	circ.cryptoMu.Unlock()
 	circ.flowMu.Lock()
 	circ.circDel--
 	s.deliv--
@@ -240,12 +292,20 @@ func (circ *Circuit) noteDeliver(s *Stream) {
 	circ.flowMu.Unlock()
 	go func() {
 		if circSM {
-			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme})
+			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme, Data: cell.EncodeSendmeV1(dig)})
 		}
 		if strSM {
 			_ = circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{Command: cell.RelaySendme, StreamID: sid})
 		}
 	}()
+}
+
+func (circ *Circuit) kill() {
+	circ.flowMu.Lock()
+	circ.flowCond.Broadcast()
+	circ.flowMu.Unlock()
+	_ = circ.ch.WriteCell(cell.Destroy(circ.id, 1))
+	_ = circ.ch.Close()
 }
 
 func (circ *Circuit) extend(r *directory.Relay) error {
@@ -292,12 +352,84 @@ func (circ *Circuit) extend(r *directory.Relay) error {
 	}
 }
 
+func (circ *Circuit) SendPadding() error {
+	return circ.ch.WriteCell(cell.Padding())
+}
+
+func (circ *Circuit) SendVpadding(n int) error {
+	return circ.ch.WriteCell(cell.Vpadding(make([]byte, n)))
+}
+
+func (circ *Circuit) Drop(hop int) error {
+	return circ.sendRelay(hop, cell.CmdRelay, cell.Relay{Command: cell.RelayDrop})
+}
+
 func (circ *Circuit) sendRelay(dest int, linkCmd byte, r cell.Relay) error {
 	body := cell.EncodeRelay(r)
 	circ.cryptoMu.Lock()
 	defer circ.cryptoMu.Unlock()
 	crypto.OnionEncrypt(circ.hops, dest, body)
+	if r.Command == cell.RelayData {
+		circ.packSince++
+		if circ.packSince == cell.CircWindowInc {
+			circ.packSince = 0
+			d := append([]byte(nil), circ.hops[dest].ForwardDigest()...)
+			circ.flowMu.Lock()
+			circ.expectDig = append(circ.expectDig, d)
+			circ.flowMu.Unlock()
+		}
+	}
 	return circ.ch.WriteCell(&cell.Cell{CircID: circ.id, Command: linkCmd, Body: body})
+}
+
+func (circ *Circuit) Resolve(host string) ([]net.IP, error) {
+	circ.mu.Lock()
+	sid := circ.nextSID
+	circ.nextSID++
+	if circ.nextSID == 0 {
+		circ.nextSID = 1
+	}
+	wait := make(chan *cell.Relay, 4)
+	circ.waiters[sid] = wait
+	circ.mu.Unlock()
+	if err := circ.sendRelay(len(circ.hops)-1, cell.CmdRelay, cell.Relay{
+		Command:  cell.RelayResolve,
+		StreamID: sid,
+		Data:     cell.EncodeResolve(host),
+	}); err != nil {
+		return nil, err
+	}
+	t := time.NewTimer(15 * time.Second)
+	defer t.Stop()
+	var msg *cell.Relay
+	select {
+	case msg = <-wait:
+	case <-t.C:
+		return nil, fmt.Errorf("timeout waiting for RESOLVED")
+	}
+	circ.mu.Lock()
+	delete(circ.waiters, sid)
+	circ.mu.Unlock()
+	if msg.Command != cell.RelayResolved {
+		return nil, fmt.Errorf("expected RESOLVED, got %d", msg.Command)
+	}
+	ans, err := cell.ParseResolved(msg.Data)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	for _, a := range ans {
+		switch a.Type {
+		case cell.ResolvedErr, cell.ResolvedErrTransient:
+			return nil, fmt.Errorf("resolve error")
+		case cell.ResolvedIPv4, cell.ResolvedIPv6:
+			ips = append(ips, net.IP(a.Value))
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no addresses")
+	}
+	return ips, nil
 }
 
 func (circ *Circuit) Close() error {

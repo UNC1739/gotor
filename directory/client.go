@@ -1,9 +1,11 @@
 package directory
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,6 +41,47 @@ func Fetch(dirAddr string) ([]*Relay, error) {
 		return nil, fmt.Errorf("no usable relays in directory")
 	}
 	return out, nil
+}
+
+func FetchRW(rw io.ReadWriter) ([]*Relay, error) {
+	cons, err := HTTPGet(rw, "/tor/status-vote/current/consensus")
+	if err != nil {
+		return nil, fmt.Errorf("consensus: %w", err)
+	}
+	relays, err := ParseConsensus(cons)
+	if err != nil {
+		return nil, err
+	}
+	return relays, nil
+}
+
+func HTTPGet(rw io.ReadWriter, path string) (string, error) {
+	req := fmt.Sprintf("GET %s HTTP/1.0\r\nHost: directory\r\nConnection: close\r\n\r\n", path)
+	if _, err := io.WriteString(rw, req); err != nil {
+		return "", err
+	}
+	br := bufio.NewReader(rw)
+	status, err := br.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(status, "200") {
+		return "", fmt.Errorf("http: %s", strings.TrimSpace(status))
+	}
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	b, err := io.ReadAll(br)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 func get(c *http.Client, url string) (string, error) {

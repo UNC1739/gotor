@@ -121,6 +121,14 @@ func (h *Hop) RecognizeBackward(body []byte) bool {
 	return true
 }
 
+func (h *Hop) ForwardDigest() []byte {
+	return h.fDigest.Sum(nil)
+}
+
+func (h *Hop) BackwardDigest() []byte {
+	return h.bDigest.Sum(nil)
+}
+
 func OnionEncrypt(hops []*Hop, dest int, body []byte) {
 	d := updateDigest(hops[dest].fDigest, body)
 	cell.SetDigest(body, d)

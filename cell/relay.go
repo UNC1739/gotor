@@ -30,6 +30,7 @@ const (
 	EndReasonConnectRefused = 3
 	EndReasonExitPolicy     = 4
 	EndReasonMisc           = 1
+	EndReasonNotDirectory   = 13
 )
 
 type Relay struct {
@@ -94,6 +95,40 @@ func SetDigest(body []byte, d []byte) {
 	if len(body) >= 9 {
 		copy(body[5:9], d[:4])
 	}
+}
+
+const SendmeV1 = 1
+
+func EncodeSendmeV1(digest []byte) []byte {
+	if len(digest) > 20 {
+		digest = digest[:20]
+	}
+	buf := make([]byte, 3+20)
+	buf[0] = SendmeV1
+	binary.BigEndian.PutUint16(buf[1:3], 20)
+	copy(buf[3:], digest)
+	return buf
+}
+
+func ParseSendme(data []byte) (ver byte, digest []byte, err error) {
+	if len(data) == 0 {
+		return 0, nil, nil
+	}
+	if len(data) < 3 {
+		return 0, nil, fmt.Errorf("short SENDME")
+	}
+	ver = data[0]
+	n := int(binary.BigEndian.Uint16(data[1:3]))
+	if len(data) < 3+n {
+		return 0, nil, fmt.Errorf("short SENDME data")
+	}
+	if ver == SendmeV1 {
+		if n < 20 {
+			return ver, nil, fmt.Errorf("short SENDME digest")
+		}
+		return ver, data[3 : 3+20], nil
+	}
+	return ver, nil, nil
 }
 
 func BeginPayload(host string, port uint16) []byte {
@@ -261,4 +296,65 @@ func EncodeExtended2(hdata []byte) []byte {
 
 func ParseExtended2(data []byte) ([]byte, error) {
 	return ParseCreated2(data)
+}
+
+const (
+	ResolvedHostname      = 0x00
+	ResolvedIPv4          = 0x04
+	ResolvedIPv6          = 0x06
+	ResolvedErrTransient  = 0xf0
+	ResolvedErr           = 0xf1
+)
+
+type Resolved struct {
+	Type  byte
+	Value []byte
+	TTL   uint32
+}
+
+func EncodeResolve(host string) []byte {
+	return append([]byte(host), 0)
+}
+
+func ParseResolve(data []byte) string {
+	for i, b := range data {
+		if b == 0 {
+			return string(data[:i])
+		}
+	}
+	return string(data)
+}
+
+func EncodeResolved(answers []Resolved) []byte {
+	var buf []byte
+	for _, a := range answers {
+		buf = append(buf, a.Type, byte(len(a.Value)))
+		buf = append(buf, a.Value...)
+		var ttl [4]byte
+		binary.BigEndian.PutUint32(ttl[:], a.TTL)
+		buf = append(buf, ttl[:]...)
+	}
+	return buf
+}
+
+func ParseResolved(data []byte) ([]Resolved, error) {
+	var out []Resolved
+	off := 0
+	for off < len(data) {
+		if off+2 > len(data) {
+			return nil, fmt.Errorf("short RESOLVED")
+		}
+		t := data[off]
+		n := int(data[off+1])
+		off += 2
+		if off+n+4 > len(data) {
+			return nil, fmt.Errorf("short RESOLVED value")
+		}
+		val := append([]byte(nil), data[off:off+n]...)
+		off += n
+		ttl := binary.BigEndian.Uint32(data[off : off+4])
+		off += 4
+		out = append(out, Resolved{Type: t, Value: val, TTL: ttl})
+	}
+	return out, nil
 }
