@@ -21,6 +21,14 @@ func Bootstrap(dirAddr string) (*Client, error) {
 	return &Client{DirAddr: dirAddr, Relays: relays, Log: slog.Default()}, nil
 }
 
+func BootstrapMicro(dirAddr string) (*Client, error) {
+	relays, err := directory.FetchMicro(dirAddr)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{DirAddr: dirAddr, Relays: relays, Log: slog.Default()}, nil
+}
+
 func (c *Client) PickPath(n int) ([]*directory.Relay, error) {
 	if n < 1 {
 		n = 3

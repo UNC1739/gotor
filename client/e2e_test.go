@@ -205,6 +205,37 @@ func TestBeginDirConsensus(t *testing.T) {
 	}
 }
 
+func TestMicrodescriptorCircuit(t *testing.T) {
+	c, err := client.BootstrapMicro(netw.DirAddr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Relays) != 3 {
+		t.Fatalf("relays=%d", len(c.Relays))
+	}
+	for _, r := range c.Relays {
+		if len(r.Ed25519ID) != 32 || len(r.MicroHash) != 32 {
+			t.Fatalf("incomplete micro relay %+v", r)
+		}
+	}
+	path, err := c.PickPath(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	circ, err := c.BuildCircuit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = circ.Close() })
+	st, err := circ.Dial(httpHost, httpPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	fmt.Fprintf(st, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", httpURL.Host)
+	readUntil(t, st, "gotor-origin-ok", 10*time.Second)
+}
+
 func TestResolveLocalhost(t *testing.T) {
 	circ := circuit(t, 3)
 	ips, err := circ.Resolve("localhost")

@@ -26,6 +26,39 @@ func Fetch(dirAddr string) ([]*Relay, error) {
 	if err := ParseDescriptors(desc, relays); err != nil {
 		return nil, err
 	}
+	return usableRelays(relays)
+}
+
+func FetchMicro(dirAddr string) ([]*Relay, error) {
+	c := &http.Client{Timeout: 15 * time.Second}
+	cons, err := get(c, "http://"+dirAddr+"/tor/status-vote/current/consensus-microdesc")
+	if err != nil {
+		return nil, fmt.Errorf("micro consensus: %w", err)
+	}
+	relays, err := ParseConsensus(cons)
+	if err != nil {
+		return nil, err
+	}
+	var hashes []string
+	for _, r := range relays {
+		if len(r.MicroHash) == 32 {
+			hashes = append(hashes, B64(r.MicroHash))
+		}
+	}
+	if len(hashes) == 0 {
+		return nil, fmt.Errorf("no microdescriptor hashes")
+	}
+	body, err := get(c, "http://"+dirAddr+"/tor/micro/d/"+strings.Join(hashes, "-"))
+	if err != nil {
+		return nil, fmt.Errorf("microdescriptors: %w", err)
+	}
+	if err := ParseMicrodescriptors(body, relays); err != nil {
+		return nil, err
+	}
+	return usableRelays(relays)
+}
+
+func usableRelays(relays []*Relay) ([]*Relay, error) {
 	var out []*Relay
 	for _, r := range relays {
 		if r.ORPort == 0 || r.Address == nil {
