@@ -85,8 +85,9 @@ type circuit struct {
 }
 
 type Relay struct {
-	Keys *RelayKeys
-	log  *slog.Logger
+	Keys    *RelayKeys
+	DirAddr string
+	log     *slog.Logger
 
 	ln net.Listener
 
@@ -297,6 +298,8 @@ func (r *Relay) handleRecognized(ci *circuit, msg *cell.Relay) {
 		go r.doExtend(ci, msg)
 	case cell.RelayBegin:
 		go r.doBegin(ci, msg)
+	case cell.RelayBeginDir:
+		go r.doBeginDir(ci, msg)
 	case cell.RelayData:
 		r.mu.Lock()
 		st := ci.streams[msg.StreamID]
@@ -413,13 +416,30 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 		sendEnd(cell.EndReasonConnectRefused)
 		return
 	}
+	r.spliceExit(ci, msg, conn, make([]byte, 8))
+}
+
+func (r *Relay) doBeginDir(ci *circuit, msg *cell.Relay) {
+	if r.DirAddr == "" {
+		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonNotDirectory})
+		return
+	}
+	conn, err := net.DialTimeout("tcp", r.DirAddr, 10*time.Second)
+	if err != nil {
+		r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonNotDirectory})
+		return
+	}
+	r.spliceExit(ci, msg, conn, nil)
+}
+
+func (r *Relay) spliceExit(ci *circuit, msg *cell.Relay, conn net.Conn, connected []byte) {
 	st := &exitStream{conn: conn, pack: cell.StreamWindowStart, deliv: cell.StreamWindowStart}
 	st.wrCond = sync.NewCond(&st.wrMu)
 	r.mu.Lock()
 	ci.streams[msg.StreamID] = st
 	r.mu.Unlock()
 	go st.writeLoop()
-	r.sendBack(ci, cell.RelayConnected, msg.StreamID, make([]byte, 8))
+	r.sendBack(ci, cell.RelayConnected, msg.StreamID, connected)
 	go func() {
 		buf := make([]byte, cell.MaxRelayData)
 		for {
@@ -431,7 +451,7 @@ func (r *Relay) doBegin(ci *circuit, msg *cell.Relay) {
 				r.sendBack(ci, cell.RelayData, msg.StreamID, buf[:n])
 			}
 			if err != nil {
-				sendEnd(cell.EndReasonDone)
+				r.sendBack(ci, cell.RelayEnd, msg.StreamID, []byte{cell.EndReasonDone})
 				r.closeStream(ci, msg.StreamID)
 				return
 			}

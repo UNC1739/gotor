@@ -30,6 +30,7 @@ const (
 	EndReasonConnectRefused = 3
 	EndReasonExitPolicy     = 4
 	EndReasonMisc           = 1
+	EndReasonNotDirectory   = 13
 )
 
 type Relay struct {

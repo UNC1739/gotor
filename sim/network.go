@@ -70,7 +70,11 @@ func Launch(cfg Config) (*Network, error) {
 	mux.HandleFunc("/", n.serveDir)
 	n.dirSrv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = n.dirSrv.Serve(ln) }()
-	log.Info("directory listening", "addr", n.DirAddr())
+	dir := n.DirAddr()
+	for _, r := range n.relays {
+		r.DirAddr = dir
+	}
+	log.Info("directory listening", "addr", dir)
 	return n, nil
 }
 
