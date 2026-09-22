@@ -369,7 +369,7 @@ func (r *Relay) doExtend(ci *circuit, msg *cell.Relay) {
 			expect = s.Data
 		}
 	}
-	if _, err := proto.HandshakeInitiator(ch, expect); err != nil {
+	if _, err := proto.HandshakeInitiatorRelay(ch, expect, r.Keys.Initiator()); err != nil {
 		r.log.Debug("extend handshake failed", "err", err)
 		ch.Close()
 		fail()

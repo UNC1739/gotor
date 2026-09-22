@@ -16,6 +16,7 @@ import (
 const (
 	CertTypeIdentityVSigning = 4
 	CertTypeSigningVTLSCert  = 5
+	CertTypeSigningVLinkAuth = 6
 	KeyTypeEd25519           = 1
 	KeyTypeSHA256X509        = 3
 	ExtSignedWithEd25519     = 4
