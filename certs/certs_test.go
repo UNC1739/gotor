@@ -51,9 +51,9 @@ func TestEd25519CertBadSignature(t *testing.T) {
 
 func TestCERTSCell(t *testing.T) {
 	body := EncodeCERTS([][2][]byte{
-		{{1}, {1}},                              // C-Tor link (RSA)
-		{{2}, {9, 9, 9}},                        // RSA identity
-		{{3}, {3}},                              // RSA→Ed25519 crosscert
+		{{1}, {1}},       // C-Tor link (RSA)
+		{{2}, {9, 9, 9}}, // RSA identity
+		{{3}, {3}},       // RSA→Ed25519 crosscert
 		{{CertTypeIdentityVSigning}, {1, 2, 3}},
 		{{CertTypeSigningVTLSCert}, {4, 5}},
 		{{6}, {6}}, // Ed25519 signing→auth
@@ -73,8 +73,6 @@ func TestCERTSCell(t *testing.T) {
 		t.Fatal("short")
 	}
 }
-
-
 
 func TestTLSCertDigest(t *testing.T) {
 	tc, der, err := SelfSignedTLS([]string{"localhost"}, [][]byte{{127, 0, 0, 1}})
@@ -126,8 +124,6 @@ func TestSelfSignedTLSIPv6(t *testing.T) {
 	}
 }
 
-
-
 func TestAuthChallengeLength(t *testing.T) {
 	b := EncodeAuthChallenge()
 	if len(b) != 36 {
@@ -137,7 +133,6 @@ func TestAuthChallengeLength(t *testing.T) {
 		t.Fatalf("methods %x", b[32:36])
 	}
 }
-
 
 func TestParseCERTSTruncated(t *testing.T) {
 	if _, err := ParseCERTS([]byte{1, 4}); err == nil {
@@ -231,9 +226,6 @@ func TestNetinfoUnknownAtype(t *testing.T) {
 	}
 }
 
-
-
-
 func TestEd25519CertShortExtension(t *testing.T) {
 	b := make([]byte, 1+1+4+1+32+1+2+1+1+10+64)
 	b[0] = 1
@@ -287,10 +279,6 @@ func TestEd25519CertTruncatedSignature(t *testing.T) {
 		t.Fatal("truncated signature")
 	}
 }
-
-
-
-
 
 func TestRSAIdentityCertDigest(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)

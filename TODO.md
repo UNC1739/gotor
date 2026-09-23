@@ -502,7 +502,8 @@ Do not start unless asked. Multipath linked circuits, RTT switch, sequence numbe
 
 ### CI
 
-- [ ] **CI** — GitHub Actions: `docker compose` unit + integration
+- [x] **CI** — GitHub Actions: `docker compose` unit + integration
+
 
 **Do:** workflow on push/PR: `docker compose build test-unit && docker compose --profile unit run --rm --no-deps test-unit`. Optional second job: `make test` integration (needs compose network). No `go test` on the runner host.
 
@@ -512,7 +513,8 @@ Do not start unless asked. Multipath linked circuits, RTT switch, sequence numbe
 
 ### README
 
-- [ ] **README** — keep the capability table in sync with this file
+- [x] **README** — keep the capability table in sync with this file
+
 
 Update the status table when merging protocol PRs (CREATE_FAST, BEGIN_DIR, SENDME v1, onion, etc.). Do not claim C-Tor interop or public-network use.
 
@@ -520,7 +522,8 @@ Update the status table when merging protocol PRs (CREATE_FAST, BEGIN_DIR, SENDM
 
 ### Release polish
 
-- [ ] **Release polish** — GitHub Actions PR gates, coverage badge, tagged releases
+- [x] **Release polish** — GitHub Actions PR gates, coverage badge, tagged releases
+
 
 Ship the GitHub-facing bits before tagging a public release. Stay sim/Docker; still no public Tor network.
 

@@ -41,7 +41,6 @@ func decodeB64Blob(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
-
 func SignConsensus(body string, key *rsa.PrivateKey) (string, error) {
 	if !strings.HasSuffix(body, "\n") {
 		body += "\n"

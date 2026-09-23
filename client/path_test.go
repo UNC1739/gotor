@@ -37,7 +37,6 @@ func TestPickPathFourHopCapsAtThree(t *testing.T) {
 	}
 }
 
-
 func TestPickPathNoRelays(t *testing.T) {
 	c := &Client{}
 	if _, err := c.PickPath(1); err == nil {
@@ -57,7 +56,6 @@ func TestPickPathNoGuardUsesAll(t *testing.T) {
 	}
 }
 
-
 func TestPickPathMiddleFromExtraGuard(t *testing.T) {
 	g := &directory.Relay{Nickname: "g", Flags: map[string]bool{"Guard": true}}
 	g2 := &directory.Relay{Nickname: "g2", Flags: map[string]bool{"Guard": true}}
@@ -68,7 +66,6 @@ func TestPickPathMiddleFromExtraGuard(t *testing.T) {
 		t.Fatalf("%+v %v", nicks(p), err)
 	}
 }
-
 
 func TestBuildCircuitEmpty(t *testing.T) {
 	c := &Client{}
@@ -83,7 +80,6 @@ func TestDialOnionCaseInsensitive(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
-
 
 func nicks(p []*directory.Relay) []string {
 	var s []string

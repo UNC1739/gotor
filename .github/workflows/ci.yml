@@ -6,14 +6,24 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+
   unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: docker compose unit
-        run: |
-          docker compose build test-unit
-          docker compose --profile unit run --rm --no-deps test-unit
+        run: make test-unit
 
   integration:
     runs-on: ubuntu-latest

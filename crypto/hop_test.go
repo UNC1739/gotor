@@ -75,7 +75,6 @@ func TestOnionDecryptUnrecognized(t *testing.T) {
 	}
 }
 
-
 func TestMiddleHopRecognized(t *testing.T) {
 	hops, exitHops := pairedHops(t, 3)
 	msg := cell.EncodeRelay(cell.Relay{Command: cell.RelayExtend2, StreamID: 0, Data: []byte("extend")})
@@ -168,8 +167,6 @@ func TestSequentialInboundCells(t *testing.T) {
 	}
 }
 
-
-
 func TestSendmeV1DigestAgrees(t *testing.T) {
 	k := dummyKeys(3)
 	snd, _ := NewHop(k)
@@ -258,8 +255,6 @@ func TestNewHopBadKeyLength(t *testing.T) {
 	}
 }
 
-
-
 func pairedHops(t *testing.T, n int) (clientHops, relayHops []*Hop) {
 	t.Helper()
 	for i := range n {
@@ -327,7 +322,6 @@ func TestCloneHashMarshalError(t *testing.T) {
 	}
 }
 
-
 func TestRecognizeFailsWhenDigestCannotClone(t *testing.T) {
 	h, err := NewHop(dummyKeys(1))
 	if err != nil {
@@ -343,5 +337,3 @@ func TestRecognizeFailsWhenDigestCannotClone(t *testing.T) {
 		t.Fatal("backward")
 	}
 }
-
-

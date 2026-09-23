@@ -72,7 +72,6 @@ func TestNegotiateVersionIgnores6(t *testing.T) {
 	}
 }
 
-
 func TestNegotiateVersionEmpty(t *testing.T) {
 	if _, err := NegotiateVersion(nil, []uint16{4, 5}); err == nil {
 		t.Fatal("empty ours")
@@ -89,8 +88,6 @@ func TestParseCreate2TrailingExtra(t *testing.T) {
 		t.Fatalf("ht=%d hd=%x err=%v", ht, hd, err)
 	}
 }
-
-
 
 func TestParseVersionsOddLength(t *testing.T) {
 	if _, err := ParseVersions([]byte{0, 4, 0}); err == nil {
@@ -305,7 +302,6 @@ func TestParseSendmeV1TrailingAndV2(t *testing.T) {
 	}
 }
 
-
 func TestPaddingNegotiateRoundTrip(t *testing.T) {
 	raw := EncodePaddingNegotiate(CircPadCommandStart, CircPadMachineCircSetup, 7)
 	n, err := ParsePaddingNegotiate(raw)
@@ -358,7 +354,6 @@ func TestParseResolveStopsAtNUL(t *testing.T) {
 		t.Fatal("no nul")
 	}
 }
-
 
 func TestZeroDigest(t *testing.T) {
 	body := EncodeRelay(Relay{Command: RelayData, StreamID: 1, Data: []byte("x")})
@@ -442,7 +437,6 @@ func TestIsVarLen(t *testing.T) {
 		t.Fatal("circid len")
 	}
 }
-
 
 func TestRelayHeaderCTorVector(t *testing.T) {
 	body := make([]byte, BodyLen)
@@ -562,7 +556,6 @@ func TestReadTruncatedTwoByteCircID(t *testing.T) {
 	}
 }
 
-
 func TestSendmeUnparseable(t *testing.T) {
 	if _, _, err := ParseSendme([]byte{1}); err == nil {
 		t.Fatal("1-byte SENDME")
@@ -580,8 +573,6 @@ func TestSendmeV1TruncatesDigest(t *testing.T) {
 		t.Fatalf("trunc ver=%d got=%x err=%v", ver, got, err)
 	}
 }
-
-
 
 func TestResolvedCTorCases(t *testing.T) {
 	got, err := ParseResolved(nil)
@@ -836,7 +827,6 @@ func TestCircIDLen(t *testing.T) {
 	}
 }
 
-
 func TestRelayTruncateAndTruncated(t *testing.T) {
 	for _, cmd := range []byte{RelayTruncate, RelayTruncated} {
 		msg, err := DecodeRelay(EncodeRelay(Relay{Command: cmd, StreamID: 0, Data: []byte{1}}))
@@ -924,7 +914,6 @@ func TestParseCreated2Empty(t *testing.T) {
 		t.Fatalf("%v %v", h, err)
 	}
 }
-
 
 func TestCreateCreatedTAPCells(t *testing.T) {
 	tap := bytes.Repeat([]byte{0x7a}, 186)
@@ -1046,15 +1035,3 @@ func TestWriteErrors(t *testing.T) {
 		t.Fatal("varlen length")
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-

@@ -15,7 +15,6 @@ import (
 	"github.com/adam/gotor/certs"
 )
 
-
 func TestLinkHandshake(t *testing.T) {
 	idPub, idPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -138,7 +137,6 @@ func TestLinkHandshakeNilExpectID(t *testing.T) {
 		t.Fatal("identity")
 	}
 }
-
 
 func TestLinkHandshakeRejectsWrongIdentity(t *testing.T) {
 	idPub, idPriv, _ := ed25519.GenerateKey(rand.Reader)
@@ -296,7 +294,6 @@ func TestLinkHandshakeSkipsPadding(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
 
 func TestLinkHandshakeRejectsUnexpectedCell(t *testing.T) {
 	tc, _, err := certs.SelfSignedTLS([]string{"localhost"}, nil)
@@ -949,8 +946,6 @@ func TestHandshakeInitiatorWriteVersionsError(t *testing.T) {
 	}
 }
 
-
-
 func TestHandshakeInitiatorTruncatedAfterVersions(t *testing.T) {
 	tc, _, err := certs.SelfSignedTLS([]string{"localhost"}, nil)
 	if err != nil {
@@ -1029,8 +1024,6 @@ func TestHandshakeResponderWriteVersionsError(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
-
 
 func TestHandshakeResponderWriteCERTSError(t *testing.T) {
 	idPub, idPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -1205,8 +1198,6 @@ func TestHandshakeResponderWriteNetinfoError(t *testing.T) {
 	}
 }
 
-
-
 func TestHandshakeResponderReadVersionsError(t *testing.T) {
 	idPub, idPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -1250,9 +1241,6 @@ func TestHandshakeResponderReadVersionsError(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
-
-
 
 func TestIPv4Of(t *testing.T) {
 	got := ipv4Of(fakeAddr("1.2.3.4:9001"))
@@ -1353,13 +1341,10 @@ func TestLinkHandshakeRejectsBadType4Sig(t *testing.T) {
 	}
 }
 
-
 type fakeAddr string
 
 func (f fakeAddr) Network() string { return "tcp" }
 func (f fakeAddr) String() string  { return string(f) }
-
-
 
 func TestLinkHandshakeRelayAuth(t *testing.T) {
 	rk, ik, tc := handshakeKeys(t)

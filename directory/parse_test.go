@@ -50,7 +50,6 @@ func TestParseConsensusPAcceptPorts(t *testing.T) {
 	}
 }
 
-
 func TestParseBandwidth(t *testing.T) {
 	ident := make([]byte, 20)
 	ident[0] = 1
@@ -326,7 +325,6 @@ func TestParseConsensusIgnoresTimestamps(t *testing.T) {
 		t.Fatalf("%+v %v", relays, err)
 	}
 
-
 }
 
 func TestParseConsensusBadIP(t *testing.T) {
@@ -354,11 +352,6 @@ func TestParseConsensusIgnoresParamsAndSharedRand(t *testing.T) {
 		t.Fatalf("%+v %v", relays, err)
 	}
 }
-
-
-
-
-
 
 func TestParseDescriptorsSkipsBadMasterKey(t *testing.T) {
 	var id [20]byte
@@ -422,7 +415,6 @@ func TestParseConsensusPRejectAndIgnoredLines(t *testing.T) {
 		t.Fatalf("%+v %v", relays, err)
 	}
 
-
 }
 
 func TestParseDescriptorsIgnoresOnionKeyAndReject(t *testing.T) {
@@ -478,7 +470,6 @@ func TestParseDescriptorsIgnoresPlatformContactBandwidth(t *testing.T) {
 	}
 }
 
-
 func TestParseConsensusIPv6RLineAndIDEd25519(t *testing.T) {
 	id := make([]byte, 20)
 	id[0] = 1
@@ -506,7 +497,6 @@ func TestParseConsensusIgnoresPrProtoLine(t *testing.T) {
 	}
 }
 
-
 func TestParseDescriptorsIgnoresFamily(t *testing.T) {
 	var id [20]byte
 	id[0] = 1
@@ -521,11 +511,3 @@ func TestParseDescriptorsIgnoresFamily(t *testing.T) {
 		t.Fatalf("%+v", relays[0])
 	}
 }
-
-
-
-
-
-
-
-

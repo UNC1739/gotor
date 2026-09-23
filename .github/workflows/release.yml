@@ -1,0 +1,31 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build linux/amd64 binaries
+        run: |
+          docker build --target build -t gotor-build .
+          mkdir -p dist
+          id=$(docker create gotor-build)
+          docker cp "$id":/out/. dist/
+          docker rm "$id"
+          cd dist
+          sha256sum gotor gotor-net gotor-check origin > SHA256SUMS
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            dist/gotor dist/gotor-net dist/gotor-check dist/origin dist/SHA256SUMS \
+            --title "${{ github.ref_name }}" \
+            --notes "Linux amd64 binaries from Docker (\`CGO_ENABLED=0\`). Default paths stay on the local sim. \`GOTOR_DIR=public\` is opt-in and not what CI runs."

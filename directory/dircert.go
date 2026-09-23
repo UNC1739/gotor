@@ -185,4 +185,3 @@ func SignDirKeyCert(ident, signing *rsa.PrivateKey, published, expires string) (
 	}
 	return head + "-----BEGIN SIGNATURE-----\n" + wrap64(base64.StdEncoding.EncodeToString(sig)) + "-----END SIGNATURE-----\n", nil
 }
-

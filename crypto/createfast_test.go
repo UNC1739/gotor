@@ -95,4 +95,3 @@ func TestCreateFastRNGFailure(t *testing.T) {
 		t.Fatal("reply rng")
 	}
 }
-

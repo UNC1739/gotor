@@ -763,9 +763,6 @@ func TestBootstrapUnreachable(t *testing.T) {
 	}
 }
 
-
-
-
 func TestHSDirPublishFetch(t *testing.T) {
 	id, err := crypto.GenerateHSIdentity(rand.Reader)
 	if err != nil {

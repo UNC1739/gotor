@@ -52,7 +52,6 @@ func TestPickCircIDExhausted(t *testing.T) {
 	}
 }
 
-
 func TestBinaryBE(t *testing.T) {
 	if binaryBE([]byte{0x80, 0x00, 0x00, 0x01}) != 0x80000001 {
 		t.Fatal("be")
@@ -231,7 +230,6 @@ func TestChannelZeroCircDropsWhenFull(t *testing.T) {
 	}
 }
 
-
 func TestChannelIgnoresPadding(t *testing.T) {
 	cli, srv := tlsPair(t)
 	got := srv.Subscribe(0x80000001)
@@ -302,8 +300,3 @@ func TestChannelShutdownIdempotent(t *testing.T) {
 		t.Fatal("not closed")
 	}
 }
-
-
-
-
-

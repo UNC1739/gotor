@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-
 func TestHTTPGetOK(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
@@ -327,7 +326,6 @@ func TestFetchSkipsNilAddress(t *testing.T) {
 	}
 }
 
-
 func TestFetchUnreachable(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -353,8 +351,3 @@ func TestHTTPGetPeerClose(t *testing.T) {
 		t.Fatal("expected peer close")
 	}
 }
-
-
-
-
-

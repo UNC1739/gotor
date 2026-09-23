@@ -80,7 +80,6 @@ func TestCreditSendmeCircuitWindow(t *testing.T) {
 	}
 }
 
-
 func TestCreditSendmeKillsUnparseable(t *testing.T) {
 	cli, srv := clientTLSPair(t)
 	_ = srv
@@ -94,7 +93,6 @@ func TestCreditSendmeKillsUnparseable(t *testing.T) {
 		t.Fatal("circuit not killed")
 	}
 }
-
 
 func TestCreditSendmeKillsDigestMismatch(t *testing.T) {
 	cli, srv := clientTLSPair(t)
@@ -110,7 +108,6 @@ func TestCreditSendmeKillsDigestMismatch(t *testing.T) {
 		t.Fatal("circuit not killed")
 	}
 }
-
 
 func clientTLSPair(t *testing.T) (cli, srv *proto.Channel) {
 	t.Helper()
@@ -341,7 +338,6 @@ func TestHandleRelayRecognizedDropAndData(t *testing.T) {
 	circ.handleRelay(&cell.Cell{Command: cell.CmdRelay, Body: []byte{1, 2, 3}})
 }
 
-
 func TestWaitConnectedEndAndConnected(t *testing.T) {
 	circ := &Circuit{waiters: map[uint16]chan *cell.Relay{}, streams: map[uint16]*Stream{}}
 	s := &Stream{id: 7, circ: circ}
@@ -367,7 +363,6 @@ func TestWaitConnectedEndAndConnected(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
-
 
 func TestHandleRelayDecodeErrorAndFullQueues(t *testing.T) {
 	ch, rh := pairedHop(t)
@@ -487,7 +482,6 @@ func TestDialDirWriteFail(t *testing.T) {
 	}
 }
 
-
 func pairedHop(t *testing.T) (clientHop, relayHop *crypto.Hop) {
 	t.Helper()
 	fill := func(n int) []byte {
@@ -509,7 +503,6 @@ func pairedHop(t *testing.T) (clientHop, relayHop *crypto.Hop) {
 	}
 	return
 }
-
 
 func TestCreateFirstHopKHMismatch(t *testing.T) {
 	cli, srv := clientTLSPair(t)
@@ -814,11 +807,3 @@ func TestNoteDeliverEmitsSendmeAtWindow(t *testing.T) {
 		t.Fatalf("sendme cells %d", n)
 	}
 }
-
-
-
-
-
-
-
-

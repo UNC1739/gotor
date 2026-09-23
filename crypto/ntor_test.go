@@ -217,7 +217,3 @@ func TestNtorRejectsZeroOnionKey(t *testing.T) {
 		t.Fatal("all-zero B")
 	}
 }
-
-
-
-

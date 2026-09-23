@@ -22,6 +22,7 @@ import (
 	"github.com/adam/gotor/directory"
 	"github.com/adam/gotor/proto"
 )
+
 func TestLaunchBadAdvertiseIP(t *testing.T) {
 	if _, err := Launch(Config{AdvertiseIP: "not-an-ip", DirPort: 0}); err == nil {
 		t.Fatal("expected bad advertise ip")
@@ -130,7 +131,6 @@ func writeRelay(t *testing.T, ch *proto.Channel, id uint32, hop *gtcrypto.Hop, c
 	}
 }
 
-
 func TestRelayCreateFastAndDestroy(t *testing.T) {
 	r := startRelay(t)
 	ch := dialRelay(t, r)
@@ -191,8 +191,6 @@ func TestRelayCreateFastSameIDOverwrite(t *testing.T) {
 	}
 }
 
-
-
 func TestRelayCreateFastCircIDZero(t *testing.T) {
 	r := startRelay(t)
 	ch := dialRelay(t, r)
@@ -232,8 +230,6 @@ func TestRelayCreateFastZeroX(t *testing.T) {
 	}
 }
 
-
-
 func TestRelayCreate2BadTypeDestroy(t *testing.T) {
 	r := startRelay(t)
 	ch := dialRelay(t, r)
@@ -271,7 +267,6 @@ func TestRelayCreate2TAPAndNtorV3Destroy(t *testing.T) {
 	}
 }
 
-
 func TestRelayCreate2NtorFailDestroy(t *testing.T) {
 	r := startRelay(t)
 	ch := dialRelay(t, r)
@@ -306,8 +301,6 @@ func TestRelayCreate2NtorEmptyDestroy(t *testing.T) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
-
-
 
 func TestRelayIgnoresPaddingThenCreateFast(t *testing.T) {
 	r := startRelay(t)
@@ -379,8 +372,6 @@ func TestRelayIgnoresPaddingNegotiateNetinfoCerts(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
-
-
 
 func TestSimBeginExtendResolve(t *testing.T) {
 	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -503,7 +494,6 @@ func TestSimBeginExtendResolve(t *testing.T) {
 	if len(gotEcho) != len(payload) {
 		t.Fatalf("echo %d/%d", len(gotEcho), len(payload))
 	}
-
 
 	path3, err := c.PickPath(3)
 	if err != nil {
@@ -733,7 +723,6 @@ func TestDir404(t *testing.T) {
 	}
 }
 
-
 func TestRelayTLSHandshakeFail(t *testing.T) {
 	r := startRelay(t)
 	conn, err := net.Dial("tcp", r.Keys.Listen)
@@ -805,7 +794,6 @@ func TestRelayDestroyMaxCircIDThenCreateFast(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
-
 
 func TestRelayCreated2UnexpectedThenCreateFast(t *testing.T) {
 	r := startRelay(t)
@@ -910,8 +898,6 @@ func TestRelayExtend2TwoIPv4Destroy(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
-
-
 
 func TestRelayBeginBadAddress(t *testing.T) {
 	r := startRelay(t)
@@ -1077,9 +1063,6 @@ func TestRelayTwoCreateFastOnOneLink(t *testing.T) {
 	}
 }
 
-
-
-
 func TestRelayCreateFastShortDestroy(t *testing.T) {
 	r := startRelay(t)
 	ch := dialRelay(t, r)
@@ -1089,7 +1072,6 @@ func TestRelayCreateFastShortDestroy(t *testing.T) {
 	}
 	r.onCreateFast(ch, &cell.Cell{CircID: id, Command: cell.CmdCreateFast, Body: []byte{1, 2, 3}})
 }
-
 
 func TestRelayUnrecognizedThenCreateFast(t *testing.T) {
 	r := startRelay(t)
@@ -1403,8 +1385,6 @@ func TestRelayCreateFastAfterCreate2SameID(t *testing.T) {
 	}
 }
 
-
-
 func TestRelayBeginIPv6(t *testing.T) {
 	ln, err := net.Listen("tcp", "[::1]:0")
 	if err != nil {
@@ -1426,7 +1406,6 @@ func TestRelayBeginIPv6(t *testing.T) {
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 	payload := append([]byte(fmt.Sprintf("::1:%d", port)), 0, 0, 0, 0, byte(cell.BeginIPv6OK))
 	writeRelay(t, ch, id, hop, cell.RelayBegin, 1, payload)
-
 
 	got, err := ch.ReadCell()
 	if err != nil {
@@ -1477,7 +1456,6 @@ func TestRelayBeginFlagsIPv4Required(t *testing.T) {
 	}
 }
 
-
 func TestRelayEndAfterConnected(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1513,7 +1491,6 @@ func TestRelayEndAfterConnected(t *testing.T) {
 	writeRelay(t, ch, id, hop, cell.RelayEnd, 1, []byte{cell.EndReasonDone})
 	writeRelay(t, ch, id, hop, cell.RelayData, 1, []byte("late"))
 }
-
 
 func TestRelayDataEcho(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1695,7 +1672,6 @@ func TestRelayResolveOnion(t *testing.T) {
 		t.Fatalf("%+v %v", ans, err)
 	}
 }
-
 
 func TestRelayBeginWithFlags(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -2243,7 +2219,6 @@ func TestRelayCreated2DroppedWhenBusy(t *testing.T) {
 	}
 }
 
-
 func TestRelayDropOutboundChannel(t *testing.T) {
 	n, err := Launch(Config{DirPort: 0})
 	if err != nil {
@@ -2532,7 +2507,6 @@ func TestRelayWriteAfterCircuitClose(t *testing.T) {
 	}
 }
 
-
 func TestRelayResolveAfterClose(t *testing.T) {
 	r := startRelay(t)
 	rel := &directory.Relay{
@@ -2603,10 +2577,7 @@ func TestRelayClientStreamClose(t *testing.T) {
 		t.Fatal("write after close")
 	}
 
-
-
 }
-
 
 func TestRelayDestroyThenRelayIgnored(t *testing.T) {
 	r := startRelay(t)
@@ -2622,29 +2593,3 @@ func TestRelayDestroyThenRelayIgnored(t *testing.T) {
 	_, _ = createFastClient(t, ch)
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

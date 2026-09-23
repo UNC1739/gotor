@@ -69,7 +69,6 @@ func TestHandleMaxDomain(t *testing.T) {
 	}
 }
 
-
 func TestHandleIPv4(t *testing.T) {
 	host, port, status := socksConnect(t, 1, []byte{1, 2, 3, 4}, 443)
 	if status != 0 || host != "1.2.3.4" || port != 443 {
@@ -84,13 +83,14 @@ func TestHandleIPv4Broadcast(t *testing.T) {
 	}
 }
 
-
 func TestHandleRejectsSOCKS4(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{4, 1})
 	select {
 	case err := <-errc:
@@ -107,7 +107,9 @@ func TestHandleUnsupportedCommand(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 2, 0, 1})
@@ -125,7 +127,9 @@ func TestHandleUDPAssociate(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 3, 0, 1})
@@ -157,13 +161,14 @@ func TestHandleIPv6MappedIPv4(t *testing.T) {
 	}
 }
 
-
 func TestHandleTruncatedGreeting(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5})
 	_ = client.Close()
 	select {
@@ -181,7 +186,9 @@ func TestHandleBadATYP(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 2})
@@ -275,7 +282,9 @@ func TestHandleTruncatedMethods(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 2})
 	_ = client.Close()
 	select {
@@ -298,7 +307,9 @@ func TestHandleTruncatedAddr(t *testing.T) {
 	for _, req := range cases {
 		client, server := net.Pipe()
 		errc := make(chan error, 1)
-		go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+		go func() {
+			errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+		}()
 		_, _ = client.Write([]byte{5, 1, 0})
 		_, _ = io.ReadFull(client, make([]byte, 2))
 		_, _ = client.Write(req)
@@ -327,7 +338,9 @@ func TestHandleBadAtyp(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 2})
@@ -347,7 +360,9 @@ func TestHandleNoMethodsThenConnect(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	if _, err := client.Write([]byte{5, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -367,8 +382,6 @@ func TestHandleNoMethodsThenConnect(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
-
 
 func TestHandleUserPass(t *testing.T) {
 	client, server := net.Pipe()
@@ -434,14 +447,14 @@ func TestHandleUserPass(t *testing.T) {
 	}
 }
 
-
-
 func TestHandleTruncatedDomainLen(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	_, _ = client.Write([]byte{5, 1, 0})
 	_, _ = io.ReadFull(client, make([]byte, 2))
 	_, _ = client.Write([]byte{5, 1, 0, 3})
@@ -460,7 +473,9 @@ func TestHandleCloseAfterGreeting(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	if _, err := client.Write([]byte{5, 1, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +494,9 @@ func TestHandleCloseAfterMethodReply(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
 	errc := make(chan error, 1)
-	go func() { errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil }) }()
+	go func() {
+		errc <- Handle(server, func(string, uint16, string, string) (io.ReadWriteCloser, error) { return nil, nil })
+	}()
 	if _, err := client.Write([]byte{5, 1, 0}); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +513,6 @@ func TestHandleCloseAfterMethodReply(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
 
 func TestHandleCloseAfterConnect(t *testing.T) {
 	client, server := net.Pipe()
@@ -528,11 +544,3 @@ func TestHandleCloseAfterConnect(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
-
-
-
-
-
-
-
-
