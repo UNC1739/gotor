@@ -51,13 +51,15 @@ Linux binaries (`gotor`, `gotor-net`, `gotor-check`, `origin`) are attached to [
 
 ## Test
 
-CI (push/`main` + PRs) runs `gofmt`/`go vet` plus the same Docker jobs as locally:
+Every pull request runs **lint** (`gofmt` + `go vet`), **unit** (`make test-unit` in Docker), and **integration** (`make test`). Same jobs run on `main`.
 
 ```sh
+make lint          # gofmt -l + go vet
 make test-unit     # Docker go test ./...
 make test          # unit + compose integration
 make test-chutney  # opt-in: gotor vs three Debian tor relays
 ```
+
 
 Compose `test-int` fetches `http://172.28.0.10:8080/` through SOCKS on a 3-hop circuit.
 

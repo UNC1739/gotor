@@ -1,4 +1,8 @@
-.PHONY: test test-unit test-chutney up down build
+.PHONY: test test-unit test-chutney lint up down build
+
+lint:
+	test -z "$$(gofmt -l .)"
+	go vet ./...
 
 build:
 	docker compose build
@@ -6,6 +10,7 @@ build:
 test-unit:
 	docker compose build test-unit
 	docker compose --profile unit run --rm --no-deps test-unit
+
 
 test: build
 	docker compose --profile unit run --rm --no-deps test-unit
